@@ -117,7 +117,7 @@ locals {
   # ============================================================================
   # Azure Storage Integration for Snowpipe
   # ============================================================================
-  
+
   # Storage Integrations - for Azure Blob Storage access
   storage_integrations = {
     azure_storage = {
@@ -196,7 +196,7 @@ locals {
         FROM ${var.project_code != "" ? upper("${var.project_code}_ICEBERG_DB") : "ICEBERG_DB"}.RAW_DATA.${var.project_code != "" ? upper("${var.project_code}_ORDERS_STREAM") : "ORDERS_STREAM"}
       SQL
       comment          = "Task to move orders data from staging stream to Iceberg table"
-      started          = false  # Set to true after Iceberg table is created
+      started          = false # Set to true after Iceberg table is created
     }
   }
 
@@ -205,11 +205,11 @@ locals {
   # Use ALTER PIPE ... REFRESH to manually trigger loads
   snowpipes = {
     orders_pipe = {
-      name        = var.project_code != "" ? upper("${var.project_code}_ORDERS_PIPE") : "ORDERS_PIPE"
-      database    = var.project_code != "" ? upper("${var.project_code}_ICEBERG_DB") : "ICEBERG_DB"
-      schema      = "RAW_DATA"
-      auto_ingest = false
-      integration = null
+      name           = var.project_code != "" ? upper("${var.project_code}_ORDERS_PIPE") : "ORDERS_PIPE"
+      database       = var.project_code != "" ? upper("${var.project_code}_ICEBERG_DB") : "ICEBERG_DB"
+      schema         = "RAW_DATA"
+      auto_ingest    = false
+      integration    = null
       copy_statement = <<-SQL
         COPY INTO ${var.project_code != "" ? upper("${var.project_code}_ICEBERG_DB") : "ICEBERG_DB"}.RAW_DATA.${var.project_code != "" ? upper("${var.project_code}_ORDERS_STAGING") : "ORDERS_STAGING"}
         (ORDER_ID, CUSTOMER_ID, ORDER_DATE, PRODUCT, QUANTITY, UNIT_PRICE, REGION, SOURCE_FILE, LOAD_TIMESTAMP)
@@ -220,7 +220,7 @@ locals {
         FILE_FORMAT = (FORMAT_NAME = '${var.project_code != "" ? upper("${var.project_code}_ICEBERG_DB") : "ICEBERG_DB"}.UTIL.CSV_FILE_FORMAT')
         PATTERN = '.*orders.*\\.csv'
       SQL
-      comment     = "Snowpipe for orders CSV data ingestion from Azure Blob"
+      comment        = "Snowpipe for orders CSV data ingestion from Azure Blob"
     }
   }
 

@@ -93,20 +93,20 @@ locals {
 
   # Extract the describe_output list
   describe_output_list = local.first_external_volume != null ? local.first_external_volume.describe_output : []
-  
+
   # Find the STORAGE_LOCATION entry which contains the JSON with AZURE_MULTI_TENANT_APP_NAME
   storage_location_entries = [
     for item in local.describe_output_list : item
     if can(item.name) && startswith(item.name, "STORAGE_LOCATION_")
   ]
-  
+
   # Parse the JSON value from STORAGE_LOCATION to extract AZURE_MULTI_TENANT_APP_NAME
   storage_location_json = length(local.storage_location_entries) > 0 ? jsondecode(local.storage_location_entries[0].value) : null
-  
+
   snowflake_azure_app_name = local.storage_location_json != null ? lookup(local.storage_location_json, "AZURE_MULTI_TENANT_APP_NAME", "") : ""
-  
+
   # Extract client_id from AZURE_CONSENT_URL (format: ...?client_id=XXXX&...)
-  azure_consent_url = local.storage_location_json != null ? lookup(local.storage_location_json, "AZURE_CONSENT_URL", "") : ""
+  azure_consent_url   = local.storage_location_json != null ? lookup(local.storage_location_json, "AZURE_CONSENT_URL", "") : ""
   snowflake_client_id = local.azure_consent_url != "" ? regex("client_id=([^&]+)", local.azure_consent_url)[0] : ""
 }
 

@@ -133,7 +133,7 @@ output "storage_integrations" {
       enabled                   = v.enabled
       comment                   = v.comment
       # Azure-specific outputs
-      azure_consent_url         = v.azure_consent_url
+      azure_consent_url           = v.azure_consent_url
       azure_multi_tenant_app_name = v.azure_multi_tenant_app_name
     }
   }
@@ -169,10 +169,10 @@ output "streams" {
   description = "Map of stream names to their details"
   value = {
     for k, v in module.stream : k => {
-      name                  = v.name
-      fully_qualified_name  = v.fully_qualified_name
-      database              = v.database
-      schema                = v.schema
+      name                 = v.name
+      fully_qualified_name = v.fully_qualified_name
+      database             = v.database
+      schema               = v.schema
     }
   }
 }
@@ -181,11 +181,11 @@ output "tasks" {
   description = "Map of task names to their details"
   value = {
     for k, v in module.task : k => {
-      name                  = v.name
-      fully_qualified_name  = v.fully_qualified_name
-      database              = v.database
-      schema                = v.schema
-      started               = v.started
+      name                 = v.name
+      fully_qualified_name = v.fully_qualified_name
+      database             = v.database
+      schema               = v.schema
+      started              = v.started
     }
   }
 }
