@@ -21,7 +21,6 @@ output "warehouses" {
   }
 }
 
-# Future outputs (to be implemented)
 output "databases" {
   description = "Map of database names to their details"
   value = {
@@ -56,19 +55,86 @@ output "file_formats" {
   }
 }
 
-# output "storage_integrations" { ... }
+output "external_volumes" {
+  description = "Map of external volume names to their details"
+  value = {
+    for k, v in module.external_volume : k => {
+      name            = v.name
+      describe_output = v.describe_output
+    }
+  }
+}
+
+# output "storage_integrations" {
+#   description = "Map of storage integration names to their details"
+#   value = {
+#     for k, v in snowflake_storage_integration.this : k => {
+#       name                      = v.name
+#       storage_provider          = v.storage_provider
+#       storage_aws_role_arn      = v.storage_aws_role_arn
+#       storage_aws_iam_user_arn  = v.storage_aws_iam_user_arn
+#       storage_aws_external_id   = v.storage_aws_external_id
+#       storage_allowed_locations = v.storage_allowed_locations
+#       enabled                   = v.enabled
+#       comment                   = v.comment
+#     }
+#   }
+# }
+
+# output "stages" {
+#   description = "Map of stage names to their details"
+#   value = {
+#     for k, v in snowflake_stage.this : k => {
+#       name                = v.name
+#       database            = v.database
+#       schema              = v.schema
+#       url                 = v.url
+#       storage_integration = v.storage_integration
+#       comment             = v.comment
+#     }
+#   }
+# }
+
+# output "tables" {
+#   description = "Map of table names to their details"
+#   value = {
+#     for k, v in snowflake_table.this : k => {
+#       name     = v.name
+#       database = v.database
+#       schema   = v.schema
+#       comment  = v.comment
+#     }
+#   }
+# }
+
+# output "snowpipes" {
+#   description = "Map of snowpipe names to their details"
+#   value = {
+#     for k, v in snowflake_pipe.this : k => {
+#       name                 = v.name
+#       database             = v.database
+#       schema               = v.schema
+#       copy_statement       = v.copy_statement
+#       auto_ingest          = v.auto_ingest
+#       notification_channel = v.notification_channel
+#       comment              = v.comment
+#     }
+#   }
+# }
+
+
 output "storage_integrations" {
   description = "Map of storage integration names to their details"
   value = {
     for k, v in snowflake_storage_integration.this : k => {
       name                      = v.name
       storage_provider          = v.storage_provider
-      storage_aws_role_arn      = v.storage_aws_role_arn
-      storage_aws_iam_user_arn  = v.storage_aws_iam_user_arn
-      storage_aws_external_id   = v.storage_aws_external_id
       storage_allowed_locations = v.storage_allowed_locations
       enabled                   = v.enabled
       comment                   = v.comment
+      # Azure-specific outputs
+      azure_consent_url         = v.azure_consent_url
+      azure_multi_tenant_app_name = v.azure_multi_tenant_app_name
     }
   }
 }
@@ -99,6 +165,31 @@ output "tables" {
   }
 }
 
+output "streams" {
+  description = "Map of stream names to their details"
+  value = {
+    for k, v in module.stream : k => {
+      name                  = v.name
+      fully_qualified_name  = v.fully_qualified_name
+      database              = v.database
+      schema                = v.schema
+    }
+  }
+}
+
+output "tasks" {
+  description = "Map of task names to their details"
+  value = {
+    for k, v in module.task : k => {
+      name                  = v.name
+      fully_qualified_name  = v.fully_qualified_name
+      database              = v.database
+      schema                = v.schema
+      started               = v.started
+    }
+  }
+}
+
 output "snowpipes" {
   description = "Map of snowpipe names to their details"
   value = {
@@ -110,6 +201,16 @@ output "snowpipes" {
       auto_ingest          = v.auto_ingest
       notification_channel = v.notification_channel
       comment              = v.comment
+    }
+  }
+}
+
+
+output "notification_integrations" {
+  description = "Map of notification integration names to their details"
+  value = {
+    for k, v in snowflake_notification_integration.this : k => {
+      name = v.name
     }
   }
 }

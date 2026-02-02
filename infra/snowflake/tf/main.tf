@@ -7,66 +7,14 @@
 # │  1. WAREHOUSES                                              │
 # ├─────────────────────────────────────────────────────────────┤
 # │  Compute resources for query execution                      │
-# │  (LOAD_WH, TRANSFORM_WH, ADHOC_WH, etc.)                    │
-# └─────────────────────────────────────────────────────────────┘
-#                             │
-#                             ▼
-# ┌─────────────────────────────────────────────────────────────┐
-# │  2. DATABASES & SCHEMAS                                     │
-# ├─────────────────────────────────────────────────────────────┤
-# │  Logical containers for data organization                   │
-# │  (LAKEHOUSE_DB → RAW, STAGING, ANALYTICS schemas)           │
-# └─────────────────────────────────────────────────────────────┘
-#                             │
-#                             ▼
-# ┌─────────────────────────────────────────────────────────────┐
-# │  3. FILE FORMATS                                            │
-# ├─────────────────────────────────────────────────────────────┤
-# │  Define parsing rules for external data files               │
-# │  (CSV, JSON, Parquet with compression settings)             │
-# └─────────────────────────────────────────────────────────────┘
-#                             │
-#                             ▼
-# ┌─────────────────────────────────────────────────────────────┐
-# │  4. STORAGE INTEGRATION                                     │
-# ├─────────────────────────────────────────────────────────────┤
-# │  Secure connection to AWS S3 via IAM Role                   │
-# │  Input:  storage_aws_role_arn (from AWS module)             │
-# │  Output: STORAGE_AWS_IAM_USER_ARN ─┐                        │
-# │          STORAGE_AWS_EXTERNAL_ID  ─┼─► For IAM trust policy │
-# └─────────────────────────────────────────────────────────────┘
-#                             │
-#                             ▼
-# ┌─────────────────────────────────────────────────────────────┐
-# │  5. EXTERNAL STAGES                                         │
-# ├─────────────────────────────────────────────────────────────┤
-# │  Named references to S3 bucket paths                        │
-# │  (Uses storage integration for authentication)              │
-# └─────────────────────────────────────────────────────────────┘
-#                             │
-#                             ▼
-# ┌─────────────────────────────────────────────────────────────┐
-# │  6. TABLES                                                  │
-# ├─────────────────────────────────────────────────────────────┤
-# │  Target tables for data ingestion                           │
-# │  (Column definitions, data types, defaults)                 │
-# └─────────────────────────────────────────────────────────────┘
-#                             │
-#                             ▼
-# ┌─────────────────────────────────────────────────────────────┐
-# │  7. SNOWPIPES                                               │
-# ├─────────────────────────────────────────────────────────────┤
-# │  Auto-ingest pipelines triggered by S3 events               │
-# │  Output: notification_channel (SQS ARN) ─► For S3 events    │
+# │  (LOAD_WH)                                                  │
 # └─────────────────────────────────────────────────────────────┘
 #
 # ============================================================================
 
 # ----------------------------------------------------------------------------
-# Phase 2: Snowflake Resources
-# ----------------------------------------------------------------------------
-
 # 1. Warehouses
+# ----------------------------------------------------------------------------
 resource "snowflake_warehouse" "this" {
   for_each = var.warehouse_config
 
@@ -83,7 +31,9 @@ resource "snowflake_warehouse" "this" {
   initially_suspended       = lookup(each.value, "initially_suspended", true)
 }
 
+# ----------------------------------------------------------------------------
 # 2. Databases
+# ----------------------------------------------------------------------------
 resource "snowflake_database" "this" {
   for_each = var.database_config
 
@@ -91,7 +41,9 @@ resource "snowflake_database" "this" {
   comment = lookup(each.value, "comment", "")
 }
 
+# ----------------------------------------------------------------------------
 # 2.1 Schemas
+# ----------------------------------------------------------------------------
 resource "snowflake_schema" "this" {
   for_each = var.schema_config
 
@@ -102,7 +54,9 @@ resource "snowflake_schema" "this" {
   depends_on = [snowflake_database.this]
 }
 
+# ----------------------------------------------------------------------------
 # 3. File Formats
+# ----------------------------------------------------------------------------
 resource "snowflake_file_format" "this" {
   for_each = var.file_format_config
 
@@ -136,22 +90,46 @@ resource "snowflake_file_format" "this" {
   depends_on = [snowflake_schema.this]
 }
 
-# 4. Storage Integrations
+# ----------------------------------------------------------------------------
+# 4. External Volume (Azure Blob Storage)
+# ----------------------------------------------------------------------------
+module "external_volume" {
+  source   = "./modules/external_volume"
+  for_each = var.external_volume_config
+
+  external_volume = {
+    name                  = each.value.name
+    storage_location_name = each.value.storage_location_name
+    storage_base_url      = each.value.storage_base_url
+    azure_tenant_id       = each.value.azure_tenant_id
+    comment               = lookup(each.value, "comment", "")
+  }
+
+  depends_on = [snowflake_database.this]
+}
+
+# ----------------------------------------------------------------------------
+# 4. Storage Integrations (Azure)
+# ----------------------------------------------------------------------------
 resource "snowflake_storage_integration" "this" {
   for_each = var.storage_integration_config
 
-  name                      = each.value.name
-  type                      = "EXTERNAL_STAGE"
+  name    = each.value.name
+  type    = "EXTERNAL_STAGE"
+  enabled = lookup(each.value, "enabled", true)
+  comment = lookup(each.value, "comment", "")
+
   storage_provider          = each.value.storage_provider
-  storage_aws_role_arn      = each.value.storage_aws_role_arn
   storage_allowed_locations = each.value.storage_allowed_locations
   storage_blocked_locations = lookup(each.value, "storage_blocked_locations", [])
-  enabled                   = lookup(each.value, "enabled", true)
-  comment                   = lookup(each.value, "comment", "")
+
+  # Azure specific
+  azure_tenant_id = lookup(each.value, "azure_tenant_id", null)
 }
 
-
+# ----------------------------------------------------------------------------
 # 5. Stages
+# ----------------------------------------------------------------------------
 resource "snowflake_stage" "this" {
   for_each = var.stage_config
 
@@ -160,19 +138,23 @@ resource "snowflake_stage" "this" {
   schema              = each.value.schema
   url                 = lookup(each.value, "url", null)
   storage_integration = lookup(each.value, "storage_integration", null)
+  file_format         = lookup(each.value, "file_format", null)
   comment             = lookup(each.value, "comment", "")
 
-  depends_on = [snowflake_storage_integration.this, snowflake_schema.this]
+  depends_on = [snowflake_storage_integration.this, snowflake_schema.this, snowflake_file_format.this]
 }
 
-# 6. Tables
+# ----------------------------------------------------------------------------
+# 6. Tables (Staging Tables)
+# ----------------------------------------------------------------------------
 resource "snowflake_table" "this" {
   for_each = var.table_config
 
-  database = each.value.database
-  schema   = each.value.schema
-  name     = each.value.name
-  comment  = lookup(each.value, "comment", "")
+  database        = each.value.database
+  schema          = each.value.schema
+  name            = each.value.name
+  comment         = lookup(each.value, "comment", "")
+  change_tracking = lookup(each.value, "change_tracking", true)
 
   dynamic "column" {
     for_each = each.value.columns
@@ -180,20 +162,72 @@ resource "snowflake_table" "this" {
       name     = column.value.name
       type     = column.value.type
       nullable = lookup(column.value, "nullable", true)
-
-      dynamic "default" {
-        for_each = lookup(column.value, "default", null) != null ? [1] : []
-        content {
-          expression = column.value.default
-        }
-      }
     }
   }
 
   depends_on = [snowflake_schema.this]
 }
 
-# 7. Snowpipes
+# ----------------------------------------------------------------------------
+# 7. Streams (on Staging Tables)
+# ----------------------------------------------------------------------------
+module "stream" {
+  source   = "./modules/stream"
+  for_each = var.stream_config
+
+  stream = {
+    name              = each.value.name
+    database          = each.value.database
+    schema            = each.value.schema
+    source_table      = each.value.source_table
+    comment           = lookup(each.value, "comment", "")
+    append_only       = lookup(each.value, "append_only", true)
+    show_initial_rows = lookup(each.value, "show_initial_rows", false)
+  }
+
+  depends_on = [snowflake_table.this]
+}
+
+# ----------------------------------------------------------------------------
+# 8. Tasks (Stream to Iceberg)
+# ----------------------------------------------------------------------------
+module "task" {
+  source   = "./modules/task"
+  for_each = var.task_config
+
+  task = {
+    name             = each.value.name
+    database         = each.value.database
+    schema           = each.value.schema
+    warehouse        = each.value.warehouse
+    schedule_minutes = each.value.schedule_minutes
+    sql_statement    = each.value.sql_statement
+    comment          = lookup(each.value, "comment", "")
+    when_condition   = lookup(each.value, "when_condition", null)
+    started          = lookup(each.value, "started", false)
+  }
+
+  depends_on = [module.stream]
+}
+
+# ----------------------------------------------------------------------------
+# 9. Notification Integration (Azure Storage Queue for Snowpipe)
+# ----------------------------------------------------------------------------
+resource "snowflake_notification_integration" "this" {
+  for_each = var.notification_integration_config
+
+  name    = each.value.name
+  enabled = lookup(each.value, "enabled", true)
+  comment = lookup(each.value, "comment", "")
+
+  notification_provider           = "AZURE_STORAGE_QUEUE"
+  azure_storage_queue_primary_uri = each.value.azure_storage_queue_primary_uri
+  azure_tenant_id                 = each.value.azure_tenant_id
+}
+
+# ----------------------------------------------------------------------------
+# 10. Snowpipes (Auto-ingest to Staging Tables)
+# ----------------------------------------------------------------------------
 resource "snowflake_pipe" "this" {
   for_each = var.snowpipe_config
 
@@ -202,7 +236,8 @@ resource "snowflake_pipe" "this" {
   schema         = each.value.schema
   copy_statement = each.value.copy_statement
   auto_ingest    = lookup(each.value, "auto_ingest", true)
+  integration    = lookup(each.value, "integration", null)
   comment        = lookup(each.value, "comment", "")
 
-  depends_on = [snowflake_stage.this, snowflake_table.this]
+  depends_on = [snowflake_stage.this, snowflake_table.this, snowflake_notification_integration.this]
 }

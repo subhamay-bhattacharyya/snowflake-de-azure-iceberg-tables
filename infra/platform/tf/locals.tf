@@ -3,72 +3,45 @@
 # Local Values
 # ============================================================================
 
-# data "aws_region" "current" {}
-data "aws_caller_identity" "current" {}
-
-# Compute KMS key alias first (no dependency on s3_config)
 locals {
-  kms_key_alias_raw = jsondecode(file("${path.module}/${var.aws_config_path}")).aws.s3.kms_key_alias
-  kms_key_alias     = startswith(local.kms_key_alias_raw, "alias/") ? local.kms_key_alias_raw : "alias/${local.kms_key_alias_raw}"
-}
-
-data "aws_kms_key" "kms" { key_id = local.kms_key_alias }
-
-locals {
-  # current_region = data.aws_region.current.id
-
   # Parse config from JSON files (relative to module path)
-  aws_config_file       = jsondecode(file("${path.module}/${var.aws_config_path}"))
+  azure_config_file     = jsondecode(file("${path.module}/${var.azure_config_path}"))
   snowflake_config_file = jsondecode(file("${path.module}/${var.snowflake_config_path}"))
 
   # Extract nested sections
-  aws_config       = local.aws_config_file.aws
+  azure_config     = local.azure_config_file.azure
   snowflake_config = local.snowflake_config_file
-  trust_config     = local.aws_config_file.trust
 
   # ============================================================================
-  # AWS Configuration
+  # Azure Configuration
   # ============================================================================
 
-  # Assume role policy - uses Snowflake principal ARN and external ID from trust config
-  snowflake_principal_arn = local.trust_config.snowflake_principal_arn
-  snowflake_external_id   = local.trust_config.snowflake_external_id
-  has_snowflake_trust     = local.snowflake_principal_arn != "" && local.snowflake_external_id != ""
-
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17",
-    Statement = [{
-      Effect    = "Allow",
-      Principal = { AWS = local.has_snowflake_trust ? local.snowflake_principal_arn : "arn:aws:iam::${data.aws_caller_identity.current.account_id}:root" },
-      Action    = "sts:AssumeRole",
-      Condition = local.has_snowflake_trust ? {
-        StringEquals = {
-          "sts:ExternalId" = local.snowflake_external_id
-        }
-      } : {}
-    }]
-  })
-
-  # S3 Configuration
-  s3_config = {
-    bucket_name   = "${var.project_code}-${local.aws_config.s3.bucket_name}-${var.environment}-${local.aws_config.region}"
-    versioning    = local.aws_config.s3.versioning
-    kms_key_alias = local.kms_key_alias
-    kms_key_arn   = data.aws_kms_key.kms.arn
-    bucket_keys   = lookup(local.aws_config.s3, "bucket_keys", [])
-    bucket_policy = templatefile("${path.module}/../../aws/tf/templates/bucket-policy/s3-bucket-policy.tpl", {
-      aws_account_id = data.aws_caller_identity.current.account_id
-      bucket_name    = "${var.project_code}-${local.aws_config.s3.bucket_name}-${var.environment}-${local.aws_config.region}"
+  # Resource Group Configuration
+  resource_group_config = {
+    name     = "${var.project_code}-${local.azure_config.resource_group.name}"
+    location = local.azure_config.resource_group.location
+    tags = merge(local.azure_config.resource_group.tags, {
+      project     = var.project_code
+      environment = var.environment
     })
   }
 
-  # IAM Role Configuration
-  iam_role_config = {
-    role_name          = "${var.project_code}-snowflake-storage-integration-role-${var.environment}"
-    assume_role_policy = local.assume_role_policy
-    s3_bucket_arn      = "arn:aws:s3:::${var.project_code}-${local.aws_config.s3.bucket_name}-${var.environment}-${local.aws_config.region}"
-    kms_key_arn        = data.aws_kms_key.kms.arn
+  # Storage Account Configuration
+  storage_account_config = {
+    base_name        = local.azure_config.storage_account.base_name
+    account_tier     = local.azure_config.storage_account.account_tier
+    replication_type = local.azure_config.storage_account.replication_type
+    is_hns_enabled   = local.azure_config.storage_account.is_hns_enabled
   }
+
+  # Storage Container Configuration
+  storage_container_config = {
+    name        = local.azure_config.storage_container.name
+    access_type = local.azure_config.storage_container.access_type
+  }
+
+  # Table Root Prefixes (iceberg/<db>/<table>/)
+  table_root_prefixes = local.azure_config.table_root_prefixes
 
   # ============================================================================
   # Snowflake Configuration
@@ -138,75 +111,127 @@ locals {
     ]) : item.key => item
   }
 
-  # Storage Integrations - flatten from all databases into a map
+  # External Volumes - built dynamically in main.tf using Azure module outputs
+  external_volumes_config = lookup(local.snowflake_config, "external_volumes", {})
+
+  # ============================================================================
+  # Azure Storage Integration for Snowpipe
+  # ============================================================================
+  
+  # Storage Integrations - for Azure Blob Storage access
   storage_integrations = {
-    for item in flatten([
-      for db_key, db in local.snowflake_config.databases : [
-        for si_key, si in lookup(db, "storage_integrations", {}) : {
-          key                       = "${db_key}_${si_key}"
-          name                      = var.project_code != "" ? upper("${var.project_code}_${si.name}") : si.name
-          storage_provider          = si.storage_provider
-          storage_aws_role_arn      = local.iam_role_config.role_name != "" ? "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${local.iam_role_config.role_name}" : si.storage_aws_role_arn
-          storage_allowed_locations = [for loc in lookup(si, "storage_allowed_locations", []) : "s3://${local.s3_config.bucket_name}/${loc}"]
-          storage_blocked_locations = lookup(si, "storage_blocked_locations", [])
-          enabled                   = lookup(si, "enabled", true)
-          comment                   = lookup(si, "comment", "")
-        }
-      ]
-    ]) : item.key => item
+    azure_storage = {
+      name                      = var.project_code != "" ? upper("${var.project_code}_AZURE_STORAGE_INT") : "AZURE_STORAGE_INT"
+      storage_provider          = "AZURE"
+      azure_tenant_id           = var.azure_tenant_id
+      storage_allowed_locations = ["azure://${module.azure.storage_account_name}.blob.core.windows.net/${module.azure.storage_container_name}/"]
+      enabled                   = true
+      comment                   = "Azure Blob Storage integration for Snowpipe"
+    }
   }
 
-  # Stages - flatten from all databases into a map
+  # Stages - Azure external stage for data ingestion
   stages = {
-    for item in flatten([
-      for db_key, db in local.snowflake_config.databases : [
-        for stage_key, stage in lookup(db, "stages", {}) : {
-          key      = "${db_key}_${stage_key}"
-          name     = stage.name
-          database = var.project_code != "" ? upper("${var.project_code}_${db.name}") : db.name
-          schema   = lookup(stage, "schema", "UTIL")
-          # Replace "the-s3-bucket" placeholder with actual S3 bucket name
-          url = lookup(stage, "url", null) != null ? replace(stage.url, "the-s3-bucket", local.s3_config.bucket_name) : null
-          # Only add prefix if storage_integration is defined and not empty
-          storage_integration = lookup(stage, "storage_integration", null) != null && lookup(stage, "storage_integration", "") != "" ? (var.project_code != "" ? upper("${var.project_code}_${stage.storage_integration}") : stage.storage_integration) : null
-          file_format         = lookup(stage, "file_format", null)
-          comment             = lookup(stage, "comment", "")
-        }
-      ]
-    ]) : item.key => item
+    azure_csv_stage = {
+      name                = var.project_code != "" ? upper("${var.project_code}_AZURE_CSV_STAGE") : "AZURE_CSV_STAGE"
+      database            = var.project_code != "" ? upper("${var.project_code}_ICEBERG_DB") : "ICEBERG_DB"
+      schema              = "UTIL"
+      url                 = "azure://${module.azure.storage_account_name}.blob.core.windows.net/${module.azure.storage_container_name}/iceberg/raw-data/csv/"
+      storage_integration = var.project_code != "" ? upper("${var.project_code}_AZURE_STORAGE_INT") : "AZURE_STORAGE_INT"
+      file_format         = "FORMAT_NAME = '${var.project_code != "" ? upper("${var.project_code}_ICEBERG_DB") : "ICEBERG_DB"}.UTIL.CSV_FILE_FORMAT'"
+      comment             = "External stage for Azure Blob CSV data ingestion"
+    }
   }
 
-  # Tables - flatten from all databases into a map
-  tables = {
-    for item in flatten([
-      for db_key, db in local.snowflake_config.databases : [
-        for table_key, table in lookup(db, "tables", {}) : {
-          key      = "${db_key}_${table_key}"
-          name     = table.name
-          database = var.project_code != "" ? upper("${var.project_code}_${db.name}") : db.name
-          schema   = lookup(table, "schema", "RAW_DATA")
-          columns  = table.columns
-          comment  = lookup(table, "comment", "")
-        }
+  # ============================================================================
+  # Staging Tables, Streams, Tasks, and Snowpipes
+  # ============================================================================
+
+  # Staging Tables - regular Snowflake tables for Snowpipe ingestion
+  staging_tables = {
+    orders_staging = {
+      name     = var.project_code != "" ? upper("${var.project_code}_ORDERS_STAGING") : "ORDERS_STAGING"
+      database = var.project_code != "" ? upper("${var.project_code}_ICEBERG_DB") : "ICEBERG_DB"
+      schema   = "RAW_DATA"
+      comment  = "Staging table for orders data - Snowpipe loads here"
+      columns = [
+        { name = "ORDER_ID", type = "STRING" },
+        { name = "CUSTOMER_ID", type = "STRING" },
+        { name = "ORDER_DATE", type = "DATE" },
+        { name = "PRODUCT", type = "STRING" },
+        { name = "QUANTITY", type = "INT" },
+        { name = "UNIT_PRICE", type = "DECIMAL(10,2)" },
+        { name = "REGION", type = "STRING" },
+        { name = "SOURCE_FILE", type = "STRING" },
+        { name = "LOAD_TIMESTAMP", type = "TIMESTAMP_NTZ" }
       ]
-    ]) : item.key => item
+    }
   }
 
-  # Snowpipes - flatten from all databases into a map
+  # Streams - capture changes on staging tables
+  streams = {
+    orders_stream = {
+      name         = var.project_code != "" ? upper("${var.project_code}_ORDERS_STREAM") : "ORDERS_STREAM"
+      database     = var.project_code != "" ? upper("${var.project_code}_ICEBERG_DB") : "ICEBERG_DB"
+      schema       = "RAW_DATA"
+      source_table = var.project_code != "" ? upper("${var.project_code}_ORDERS_STAGING") : "ORDERS_STAGING"
+      comment      = "Stream on orders staging table for CDC to Iceberg"
+      append_only  = true
+    }
+  }
+
+  # Tasks - move data from stream to Iceberg table
+  tasks = {
+    orders_to_iceberg = {
+      name             = var.project_code != "" ? upper("${var.project_code}_ORDERS_TO_ICEBERG") : "ORDERS_TO_ICEBERG"
+      database         = var.project_code != "" ? upper("${var.project_code}_ICEBERG_DB") : "ICEBERG_DB"
+      schema           = "RAW_DATA"
+      warehouse        = var.project_code != "" ? upper("${var.project_code}_LOAD_WH") : "LOAD_WH"
+      schedule_minutes = 1
+      when_condition   = "SYSTEM$STREAM_HAS_DATA('${var.project_code != "" ? upper("${var.project_code}_ICEBERG_DB") : "ICEBERG_DB"}.RAW_DATA.${var.project_code != "" ? upper("${var.project_code}_ORDERS_STREAM") : "ORDERS_STREAM"}')"
+      sql_statement    = <<-SQL
+        INSERT INTO ${var.project_code != "" ? upper("${var.project_code}_ICEBERG_DB") : "ICEBERG_DB"}.RAW_DATA.ORDERS_ICEBERG 
+        (ORDER_ID, CUSTOMER_ID, ORDER_DATE, PRODUCT, QUANTITY, UNIT_PRICE, REGION)
+        SELECT ORDER_ID, CUSTOMER_ID, ORDER_DATE, PRODUCT, QUANTITY, UNIT_PRICE, REGION
+        FROM ${var.project_code != "" ? upper("${var.project_code}_ICEBERG_DB") : "ICEBERG_DB"}.RAW_DATA.${var.project_code != "" ? upper("${var.project_code}_ORDERS_STREAM") : "ORDERS_STREAM"}
+      SQL
+      comment          = "Task to move orders data from staging stream to Iceberg table"
+      started          = false  # Set to true after Iceberg table is created
+    }
+  }
+
+  # Snowpipes - auto-ingest from Azure Blob to staging tables
+  # NOTE: Auto-ingest disabled due to Azure queue permission issues
+  # Use ALTER PIPE ... REFRESH to manually trigger loads
   snowpipes = {
-    for item in flatten([
-      for db_key, db in local.snowflake_config.databases : [
-        for pipe_key, pipe in lookup(db, "snowpipes", {}) : {
-          key      = "${db_key}_${pipe_key}"
-          name     = var.project_code != "" ? upper("${var.project_code}_${pipe.name}") : pipe.name
-          database = var.project_code != "" ? upper("${var.project_code}_${db.name}") : db.name
-          schema   = lookup(pipe, "schema", "RAW_DATA")
-          # Replace database/schema references in copy_statement with prefixed names
-          copy_statement = var.project_code != "" ? replace(pipe.copy_statement, db.name, upper("${var.project_code}_${db.name}")) : pipe.copy_statement
-          auto_ingest    = lookup(pipe, "auto_ingest", true)
-          comment        = lookup(pipe, "comment", "")
-        }
-      ]
-    ]) : item.key => item
+    orders_pipe = {
+      name        = var.project_code != "" ? upper("${var.project_code}_ORDERS_PIPE") : "ORDERS_PIPE"
+      database    = var.project_code != "" ? upper("${var.project_code}_ICEBERG_DB") : "ICEBERG_DB"
+      schema      = "RAW_DATA"
+      auto_ingest = false
+      integration = null
+      copy_statement = <<-SQL
+        COPY INTO ${var.project_code != "" ? upper("${var.project_code}_ICEBERG_DB") : "ICEBERG_DB"}.RAW_DATA.${var.project_code != "" ? upper("${var.project_code}_ORDERS_STAGING") : "ORDERS_STAGING"}
+        (ORDER_ID, CUSTOMER_ID, ORDER_DATE, PRODUCT, QUANTITY, UNIT_PRICE, REGION, SOURCE_FILE, LOAD_TIMESTAMP)
+        FROM (
+          SELECT $1, $2, $3, $4, $5, $6, $7, METADATA$FILENAME, CURRENT_TIMESTAMP()
+          FROM @${var.project_code != "" ? upper("${var.project_code}_ICEBERG_DB") : "ICEBERG_DB"}.UTIL.${var.project_code != "" ? upper("${var.project_code}_AZURE_CSV_STAGE") : "AZURE_CSV_STAGE"}
+        )
+        FILE_FORMAT = (FORMAT_NAME = '${var.project_code != "" ? upper("${var.project_code}_ICEBERG_DB") : "ICEBERG_DB"}.UTIL.CSV_FILE_FORMAT')
+        PATTERN = '.*orders.*\\.csv'
+      SQL
+      comment     = "Snowpipe for orders CSV data ingestion from Azure Blob"
+    }
+  }
+
+  # Notification integrations - Azure Storage Queue for Snowpipe auto-ingest
+  notification_integrations = {
+    azure_snowpipe = {
+      name                            = var.project_code != "" ? upper("${var.project_code}_AZURE_SNOWPIPE_INT") : "AZURE_SNOWPIPE_INT"
+      azure_storage_queue_primary_uri = module.azure.snowpipe_queue_url
+      azure_tenant_id                 = var.azure_tenant_id
+      enabled                         = true
+      comment                         = "Azure Storage Queue notification integration for Snowpipe"
+    }
   }
 }

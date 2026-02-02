@@ -1,0 +1,28 @@
+{
+  "azure": {
+    "resource_group": {
+      "name": "snowflake-iceberg-rg",
+      "location": "eastus",
+      "tags": {
+        "project": "snowflake-iceberg",
+        "environment": "dev",
+        "managed_by": "terraform"
+      }
+    },
+    "storage_account": {
+      "base_name": "snwiceberg",
+      "account_tier": "Standard",
+      "replication_type": "LRS",
+      "is_hns_enabled": true
+    },
+    "storage_container": {
+      "name": "iceberg-data",
+      "access_type": "private"
+    },
+    "table_root_prefixes": [
+      "iceberg/sales/orders",
+      "iceberg/sales/customers",
+      "iceberg/marketing/campaigns"
+    ]
+  }
+}

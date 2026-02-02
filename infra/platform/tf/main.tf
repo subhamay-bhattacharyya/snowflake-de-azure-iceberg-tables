@@ -4,11 +4,12 @@
 # ============================================================================
 #
 # ┌─────────────────────────────────────────────────────────────┐
-# │  PHASE 1: AWS Resources (module.aws)                        │
+# │  PHASE 1: Azure Resources (module.azure)                    │
 # ├─────────────────────────────────────────────────────────────┤
-# │  1. S3 Bucket (landing zone for data files)                 │
-# │  2. IAM Role (initial - with placeholder trust policy)      │
-# │     └─► Output: IAM Role ARN for Storage Integration        │
+# │  1. Resource Group                                          │
+# │  2. Storage Account (landing zone for data files)           │
+# │  3. Blob Container                                          │
+# │     └─► Output: Storage Account URL for External Volume     │
 # └─────────────────────────────────────────────────────────────┘
 #                             │
 #                             ▼
@@ -17,150 +18,156 @@
 # ├─────────────────────────────────────────────────────────────┤
 # │  1. Warehouses (compute resources)                          │
 # │  2. Databases & Schemas                                     │
-# │  3. File Formats (CSV, JSON, Parquet)                       │
-# │  4. Storage Integration ← references IAM Role ARN           │
-# │     └─► Outputs: STORAGE_AWS_IAM_USER_ARN                   │
-# │                  STORAGE_AWS_EXTERNAL_ID                    │
-# │  5. External Stages (S3 paths)                              │
-# │  6. Tables (target tables for data)                         │
-# │  NOTE: Snowpipes created separately in Phase 4              │
-# └─────────────────────────────────────────────────────────────┘
-#                             │
-#                             ▼
-# ┌─────────────────────────────────────────────────────────────┐
-# │  PHASE 3: AWS Trust Policy Update (module.aws_iam_role_final)│
-# ├─────────────────────────────────────────────────────────────┤
-# │  Update IAM Role trust policy with Snowflake's              │
-# │  STORAGE_AWS_IAM_USER_ARN and STORAGE_AWS_EXTERNAL_ID       │
-# │  (Enables Snowflake to assume the IAM role)                 │
-# └─────────────────────────────────────────────────────────────┘
-#                             │
-#                             ▼
-# ┌─────────────────────────────────────────────────────────────┐
-# │  PHASE 4: Snowpipes (snowflake_pipe resources)              │
-# ├─────────────────────────────────────────────────────────────┤
-# │  Create Snowpipes AFTER trust policy is updated             │
-# │  (auto_ingest requires valid IAM role assumption)           │
-# │     └─► Output: SQS Notification Channel ARN                │
-# └─────────────────────────────────────────────────────────────┘
-#                             │
-#                             ▼
-# ┌─────────────────────────────────────────────────────────────┐
-# │  PHASE 5: S3 Event Notifications (module.s3_event_notification)│
-# ├─────────────────────────────────────────────────────────────┤
-# │  Configure S3 bucket event notifications to trigger         │
-# │  Snowpipe auto-ingest via SQS queue                         │
-# │  (s3:ObjectCreated:* → Snowpipe SQS ARN)                    │
+# │  3. External Volume (Azure Blob Storage)                    │
+# │  4. Catalog Integration (Iceberg REST catalog)              │
+# │  5. Iceberg Tables                                          │
 # └─────────────────────────────────────────────────────────────┘
 #
 # ============================================================================
 
 # ----------------------------------------------------------------------------
-# Phase 1: AWS Resources (S3 Bucket + IAM Role with placeholder trust)
+# Phase 1: Azure Resources (Resource Group + Storage Account + Container)
 # ----------------------------------------------------------------------------
-module "aws" {
-  source = "../../aws/tf"
+module "azure" {
+  source = "../../azure/tf"
 
-  # S3 bucket configuration
-  s3_config = local.s3_config
-
-  # IAM role configuration (with placeholder trust policy initially)
-  iam_role_config = local.iam_role_config
-
-  # Phase 3: Pass Snowflake values for trust policy update (empty on first apply)
-  update_trust_policy    = false # Set to true after Phase 2 to update via AWS module
-  snowflake_iam_user_arn = ""
-  snowflake_external_id  = ""
+  resource_group_config       = local.resource_group_config
+  storage_account_config      = local.storage_account_config
+  storage_container_config    = local.storage_container_config
+  table_root_prefixes         = local.table_root_prefixes
+  enable_snowpipe_auto_ingest = true
 }
 
 # ----------------------------------------------------------------------------
-# Phase 2: Snowflake Base Resources (WITHOUT Snowpipes)
+# Phase 2: Snowflake Base Resources
 # ----------------------------------------------------------------------------
+
+# Build external volumes config with dynamic storage URL from Azure module
+locals {
+  # Build storage_base_url dynamically: azure://<storage_account>.blob.core.windows.net/<container>
+  storage_base_url = "azure://${module.azure.storage_account_name}.blob.core.windows.net/${module.azure.storage_container_name}"
+
+  # External Volumes - for Azure Blob Storage (Iceberg tables)
+  external_volumes = {
+    for ev_key, ev in local.external_volumes_config : ev_key => {
+      name                  = var.project_code != "" ? upper("${var.project_code}_${ev.name}") : ev.name
+      storage_location_name = ev.storage_location_name
+      storage_base_url      = local.storage_base_url
+      azure_tenant_id       = var.azure_tenant_id
+      comment               = lookup(ev, "comment", "")
+    }
+  }
+}
+
 module "snowflake" {
   source = "../../snowflake/tf"
 
-  # Pass Snowflake configurations as individual config objects
-  warehouse_config           = local.warehouses
-  database_config            = local.databases
-  schema_config              = local.schemas
-  file_format_config         = local.file_formats
-  storage_integration_config = local.storage_integrations
-  stage_config               = local.stages
-  table_config               = local.tables
-  snowpipe_config            = {} # Empty - Snowpipes created in Phase 4
+  warehouse_config                = local.warehouses
+  database_config                 = local.databases
+  schema_config                   = local.schemas
+  file_format_config              = local.file_formats
+  external_volume_config          = local.external_volumes
+  storage_integration_config      = local.storage_integrations
+  stage_config                    = local.stages
+  table_config                    = local.staging_tables
+  stream_config                   = local.streams
+  task_config                     = local.tasks
+  notification_integration_config = local.notification_integrations
+  snowpipe_config                 = local.snowpipes
 
-  depends_on = [module.aws]
+  depends_on = [module.azure]
 }
 
 # ----------------------------------------------------------------------------
-# Phase 3: Update IAM Role Trust Policy with Snowflake values
+# Phase 3: Grant Snowflake Access to Azure Storage
 # ----------------------------------------------------------------------------
-# Extract the first storage integration's trust values from Snowflake output
+# The Snowflake service principal needs "Storage Blob Data Contributor" role
+# on the storage account to access Azure Blob Storage.
+# ----------------------------------------------------------------------------
+
 locals {
-  storage_integration_keys     = keys(module.snowflake.storage_integrations)
-  has_storage_integration      = length(local.storage_integration_keys) > 0
-  first_storage_integration    = local.has_storage_integration ? module.snowflake.storage_integrations[local.storage_integration_keys[0]] : null
-  snowflake_iam_user_arn       = local.first_storage_integration != null ? local.first_storage_integration.storage_aws_iam_user_arn : ""
-  snowflake_external_id_output = local.first_storage_integration != null ? local.first_storage_integration.storage_aws_external_id : ""
-}
+  # Get the first external volume's describe output
+  external_volume_keys  = keys(module.snowflake.external_volumes)
+  has_external_volume   = length(local.external_volume_keys) > 0
+  first_external_volume = local.has_external_volume ? module.snowflake.external_volumes[local.external_volume_keys[0]] : null
 
-module "aws_iam_role_final" {
-  source = "../../aws/tf/modules/iam_role_final"
-
-  enabled                = local.has_storage_integration
-  role_name              = local.iam_role_config.role_name
-  snowflake_iam_user_arn = local.snowflake_iam_user_arn
-  snowflake_external_id  = local.snowflake_external_id_output
-
-  depends_on = [module.snowflake]
-}
-
-# ----------------------------------------------------------------------------
-# Phase 4: Snowpipes (created AFTER trust policy is updated)
-# ----------------------------------------------------------------------------
-# Snowpipes with auto_ingest=true require the IAM role to be assumable by
-# Snowflake. Creating them after the trust policy update ensures the
-# storage integration can successfully assume the IAM role.
-# ----------------------------------------------------------------------------
-resource "snowflake_pipe" "this" {
-  for_each = local.snowpipes
-
-  name           = each.value.name
-  database       = each.value.database
-  schema         = each.value.schema
-  copy_statement = each.value.copy_statement
-  auto_ingest    = lookup(each.value, "auto_ingest", true)
-  comment        = lookup(each.value, "comment", "")
-
-  depends_on = [module.aws_iam_role_final, module.snowflake]
-}
-
-# ----------------------------------------------------------------------------
-# Phase 5: Configure S3 Event Notifications for Snowpipe Auto-Ingest
-# ----------------------------------------------------------------------------
-locals {
-  # Check if snowpipes are configured (known at plan time from input config)
-  has_snowpipes = length(local.snowpipes) > 0
-
-  # Build notification configs from snowpipe outputs
-  snowpipe_notifications = [
-    for key, pipe in snowflake_pipe.this : {
-      id            = key
-      sqs_arn       = pipe.notification_channel
-      events        = ["s3:ObjectCreated:*"]
-      filter_prefix = lookup(local.snowpipes[key], "filter_prefix", null)
-      filter_suffix = lookup(local.snowpipes[key], "filter_suffix", null)
-    } if pipe.notification_channel != null && pipe.notification_channel != ""
+  # Extract the describe_output list
+  describe_output_list = local.first_external_volume != null ? local.first_external_volume.describe_output : []
+  
+  # Find the STORAGE_LOCATION entry which contains the JSON with AZURE_MULTI_TENANT_APP_NAME
+  storage_location_entries = [
+    for item in local.describe_output_list : item
+    if can(item.name) && startswith(item.name, "STORAGE_LOCATION_")
   ]
+  
+  # Parse the JSON value from STORAGE_LOCATION to extract AZURE_MULTI_TENANT_APP_NAME
+  storage_location_json = length(local.storage_location_entries) > 0 ? jsondecode(local.storage_location_entries[0].value) : null
+  
+  snowflake_azure_app_name = local.storage_location_json != null ? lookup(local.storage_location_json, "AZURE_MULTI_TENANT_APP_NAME", "") : ""
+  
+  # Extract client_id from AZURE_CONSENT_URL (format: ...?client_id=XXXX&...)
+  azure_consent_url = local.storage_location_json != null ? lookup(local.storage_location_json, "AZURE_CONSENT_URL", "") : ""
+  snowflake_client_id = local.azure_consent_url != "" ? regex("client_id=([^&]+)", local.azure_consent_url)[0] : ""
 }
 
-module "s3_event_notification" {
-  source = "../../aws/tf/modules/s3_event_notification"
+# Look up the Snowflake service principal in Azure AD by application (client) ID
+# The client_id is extracted from the AZURE_CONSENT_URL
+# Only lookup in Phase 2 (after consent is granted)
+data "azuread_service_principal" "snowflake" {
+  count     = var.deployment_phase == 2 && local.snowflake_client_id != "" ? 1 : 0
+  client_id = local.snowflake_client_id
+}
 
-  # Use input config to determine if enabled (known at plan time)
-  enabled       = local.has_snowpipes
-  bucket_name   = local.s3_config.bucket_name
-  notifications = local.snowpipe_notifications
+# Grant Snowflake service principal access to the storage account (Phase 2 only)
+resource "azurerm_role_assignment" "snowflake_storage" {
+  count                = var.deployment_phase == 2 && try(length(data.azuread_service_principal.snowflake), 0) > 0 ? 1 : 0
+  scope                = module.azure.storage_account_id
+  role_definition_name = "Storage Blob Data Contributor"
+  principal_id         = data.azuread_service_principal.snowflake[0].object_id
+}
 
-  depends_on = [snowflake_pipe.this, module.aws_iam_role_final]
+# Grant Snowflake service principal permission to get user delegation key (Phase 2 only)
+resource "azurerm_role_assignment" "snowflake_storage_delegator" {
+  count                = var.deployment_phase == 2 && try(length(data.azuread_service_principal.snowflake), 0) > 0 ? 1 : 0
+  scope                = module.azure.storage_account_id
+  role_definition_name = "Storage Blob Delegator"
+  principal_id         = data.azuread_service_principal.snowflake[0].object_id
+}
+
+# ----------------------------------------------------------------------------
+# Phase 4: Grant Snowflake Notification Integration Access to Azure Queue
+# ----------------------------------------------------------------------------
+# The notification integration uses a DIFFERENT service principal than the
+# storage/external volume integration. We need to look it up separately.
+# ----------------------------------------------------------------------------
+
+# Look up the notification integration service principal by client_id
+# This requires consent to be granted first via the AZURE_CONSENT_URL (Phase 2 only)
+data "azuread_service_principal" "snowpipe" {
+  count     = var.deployment_phase == 2 && var.snowpipe_azure_client_id != "" ? 1 : 0
+  client_id = var.snowpipe_azure_client_id
+}
+
+# Grant notification integration service principal - Storage Queue Data Contributor (Phase 2 only)
+resource "azurerm_role_assignment" "snowpipe_queue_contributor" {
+  count                = var.deployment_phase == 2 && try(length(data.azuread_service_principal.snowpipe), 0) > 0 ? 1 : 0
+  scope                = module.azure.storage_account_id
+  role_definition_name = "Storage Queue Data Contributor"
+  principal_id         = data.azuread_service_principal.snowpipe[0].object_id
+}
+
+# Grant notification integration service principal - Storage Queue Data Message Processor (Phase 2 only)
+resource "azurerm_role_assignment" "snowpipe_queue_processor" {
+  count                = var.deployment_phase == 2 && try(length(data.azuread_service_principal.snowpipe), 0) > 0 ? 1 : 0
+  scope                = module.azure.storage_account_id
+  role_definition_name = "Storage Queue Data Message Processor"
+  principal_id         = data.azuread_service_principal.snowpipe[0].object_id
+}
+
+# Grant notification integration service principal - Storage Queue Data Reader (Phase 2 only)
+resource "azurerm_role_assignment" "snowpipe_queue_reader" {
+  count                = var.deployment_phase == 2 && try(length(data.azuread_service_principal.snowpipe), 0) > 0 ? 1 : 0
+  scope                = module.azure.storage_account_id
+  role_definition_name = "Storage Queue Data Reader"
+  principal_id         = data.azuread_service_principal.snowpipe[0].object_id
 }
