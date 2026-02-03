@@ -6,7 +6,7 @@
 # ----------------------------------------------------------------------------
 # Azure Provider Configuration
 # ----------------------------------------------------------------------------
-# azure_subscription_id = "8ea2d3cf-0884-4fea-ab51-9b88f5644937" # Set your Azure subscription ID
+azure_subscription_id = "8ea2d3cf-0884-4fea-ab51-9b88f5644937" # Set your Azure subscription ID
 azure_tenant_id       = "1e79bc38-cdfb-4573-aa35-2e2b434315fc" # Set your Azure tenant ID
 
 # ----------------------------------------------------------------------------
