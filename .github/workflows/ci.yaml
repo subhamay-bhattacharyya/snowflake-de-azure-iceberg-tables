@@ -10,17 +10,13 @@ on:
       - 'bug/*'
       - 'bug/**'
     paths:
-      - 'infra/azure/tf/**'
-      - 'infra/snowflake/tf/**'
-      - 'infra/platform/tf/**'
+      - 'infra/**'
       - 'input-jsons/**'
       - '.github/workflows/ci.yaml'
   pull_request:
     branches: [main]
     paths:
-      - 'infra/azure/tf/**'
-      - 'infra/snowflake/tf/**'
-      - 'infra/platform/tf/**'
+      - 'infra/**'
       - 'input-jsons/**'
       - '.github/workflows/ci.yaml'
   workflow_dispatch:
