@@ -25,10 +25,10 @@ variable "project_code" {
 # ============================================================================
 
 # tflint-ignore: terraform_unused_declarations
-variable "azure_subscription_id" {
-  description = "Azure Subscription ID"
-  type        = string
-}
+# variable "azure_subscription_id" {
+#   description = "Azure Subscription ID"
+#   type        = string
+# }
 
 # tflint-ignore: terraform_unused_declarations
 variable "azure_tenant_id" {
