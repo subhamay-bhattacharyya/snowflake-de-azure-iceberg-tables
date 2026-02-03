@@ -8,7 +8,7 @@ on:
       - 'feature/**'
       - 'bug/**'
     paths:
-      - infra/aws/tf/**
+      - infra/azure/tf/**
       - infra/snowflake/tf/**
       - infra/platform/tf/**
       - input-jsons/**

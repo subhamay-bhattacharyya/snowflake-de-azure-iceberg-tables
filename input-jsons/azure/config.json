@@ -4,7 +4,7 @@
       "name": "snowflake-iceberg-rg",
       "location": "eastus",
       "tags": {
-        "project": "snowflake-iceberg",
+        "project": "azure-snwibg",
         "environment": "dev",
         "managed_by": "terraform"
       }
