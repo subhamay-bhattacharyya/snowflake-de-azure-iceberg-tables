@@ -24,16 +24,19 @@ variable "project_code" {
 # Azure Provider Variables
 # ============================================================================
 
+# tflint-ignore: terraform_unused_declarations
 variable "azure_subscription_id" {
   description = "Azure Subscription ID"
   type        = string
 }
 
+# tflint-ignore: terraform_unused_declarations
 variable "azure_tenant_id" {
   description = "Azure Tenant ID"
   type        = string
 }
 
+# tflint-ignore: terraform_unused_declarations
 variable "azure_client_id" {
   description = "Azure Client ID for OIDC authentication"
   type        = string
