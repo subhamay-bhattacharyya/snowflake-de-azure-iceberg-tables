@@ -3,25 +3,19 @@
 # Azure Provider Configuration
 # ============================================================================
 # NOTE: required_providers block is in versions.tf
-# Authentication: Uses OIDC via ARM_CLIENT_ID, ARM_TENANT_ID, ARM_SUBSCRIPTION_ID
-# and ARM_USE_OIDC environment variables set by CI/CD workflow
+# Authentication: Relies on ARM_* environment variables set by CI/CD workflow:
+#   - ARM_CLIENT_ID
+#   - ARM_TENANT_ID  
+#   - ARM_SUBSCRIPTION_ID
+#   - ARM_USE_OIDC=true (for OIDC auth)
 # ============================================================================
 
 provider "azurerm" {
   features {}
-
-  subscription_id            = var.azure_subscription_id
-  # tenant_id                  = var.azure_tenant_id
-  # client_id                  = var.azure_client_id != "" ? var.azure_client_id : null
-  # use_oidc                   = true
-  # use_cli                    = false
-  # skip_provider_registration = true
+  subscription_id                 = var.azure_subscription_id
+  resource_provider_registrations = "none"
 }
 
 # Azure AD provider for service principal lookup
 provider "azuread" {
-  tenant_id = var.azure_tenant_id
-  client_id = var.azure_client_id != "" ? var.azure_client_id : null
-  use_oidc  = true
-  use_cli   = false
 }
