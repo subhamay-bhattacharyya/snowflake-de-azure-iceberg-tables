@@ -55,5 +55,5 @@ output "table_root_prefixes" {
 
 output "snowpipe_queue_url" {
   description = "Azure Storage Queue URL for Snowpipe notifications"
-  value       = length(azurerm_storage_queue.snowpipe) > 0 ? "https://${module.storage_account.name}.queue.core.windows.net/${azurerm_storage_queue.snowpipe[0].name}" : null
+  value       = length(module.storage_queue) > 0 ? "https://${module.storage_account.name}.queue.core.windows.net/${module.storage_queue[0].name}" : null
 }
