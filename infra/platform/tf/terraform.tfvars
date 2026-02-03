@@ -26,7 +26,7 @@ snowflake_config_path = "../../../input-jsons/snowflake/config.json"
 project_code = "demo"
 
 # Snowpipe notification integration app name (from DESC NOTIFICATION INTEGRATION)
-snowpipe_azure_app_name  = "n5vfd8snowflakepacint_1770058162569"
+# snowpipe_azure_app_name  = "n5vfd8snowflakepacint_1770058162569"
 snowpipe_azure_client_id = "0fdfefaf-75cc-4f45-b886-faaeeb8d4e20"
 
 

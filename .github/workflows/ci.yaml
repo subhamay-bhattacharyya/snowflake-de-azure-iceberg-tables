@@ -15,7 +15,7 @@ on:
   pull_request:
     branches: [main]
     paths:
-      - infra/aws/tf/**
+      - infra/azure/tf/**
       - infra/snowflake/tf/**
       - infra/platform/tf/**
       - input-jsons/**
@@ -38,7 +38,6 @@ jobs:
       tflint-ver: ${{ vars.TF_LINT_VER }}
       backend-type: remote
       tf-vars-file: terraform.tfvars
-      aws-region: ${{ vars.AWS_REGION }}
       snowflake-user: ${{ vars.SNOWFLAKE_USER }}
       snowflake-organization-name: ${{ vars.SNOWFLAKE_ORGANIZATION_NAME }}
       snowflake-account-name: ${{ vars.SNOWFLAKE_ACCOUNT_NAME }}
@@ -46,7 +45,9 @@ jobs:
     secrets:
       tfc-token: ${{ secrets.TF_TOKEN_APP_TERRAFORM_IO }}
       snowflake-private-key: ${{ secrets.SNOWFLAKE_PRIVATE_KEY }}
-      aws-role-to-assume: ${{ secrets.AWS_OIDC_ROLE_ARN }}
+      azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
+      azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+      azure-subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
   # ============================================================================
   # Generate Change Log

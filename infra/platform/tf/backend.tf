@@ -3,13 +3,13 @@
 # Terraform Backend Configuration
 # ============================================================================
 
-terraform {
-  cloud {
+terraform { 
+  cloud { 
+    
+    organization = "subhamay-bhattacharyya-projects" 
 
-    organization = "subhamay-bhattacharyya-projects"
-
-    workspaces {
-      name = "snowflake-de-azure-iceberg-tables"
-    }
-  }
+    workspaces { 
+      name = "snowflake-de-azure-iceberg-tables" 
+    } 
+  } 
 }
