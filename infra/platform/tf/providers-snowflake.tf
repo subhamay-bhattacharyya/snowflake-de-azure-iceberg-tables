@@ -21,6 +21,6 @@ provider "snowflake" {
   user              = var.snowflake_user != "" ? var.snowflake_user : null
   role              = var.snowflake_role != "" ? var.snowflake_role : null
   warehouse         = var.snowflake_warehouse != "" ? var.snowflake_warehouse : null
-  authenticator     = "JWT"
+  authenticator     = "SNOWFLAKE_JWT"
   # private_key is read from SNOWFLAKE_PRIVATE_KEY environment variable automatically
 }
