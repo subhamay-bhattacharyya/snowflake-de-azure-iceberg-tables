@@ -7,7 +7,7 @@
 # Azure Outputs
 # ----------------------------------------------------------------------------
 output "resource_group_name" {
-  description = "Azure Resource Group name"
+  description = "Azure Resource Group name."
   value       = module.azure.resource_group_name
 }
 
