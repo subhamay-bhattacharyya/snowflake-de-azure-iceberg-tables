@@ -12,4 +12,4 @@ terraform {
       name = "snowflake-de-azure-iceberg-tables" 
     } 
   } 
-}
+} 
