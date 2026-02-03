@@ -108,6 +108,7 @@ output "snowflake_storage_role_assignment_id" {
 output "storage_integrations" {
   description = "Map of storage integrations to their details"
   value       = module.snowflake.storage_integrations
+  sensitive   = true
 }
 
 output "stages" {
