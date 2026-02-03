@@ -34,6 +34,12 @@ variable "azure_tenant_id" {
   type        = string
 }
 
+variable "azure_client_id" {
+  description = "Azure Client ID for OIDC authentication"
+  type        = string
+  default     = ""
+}
+
 # ============================================================================
 # Snowflake Provider Variables
 # ============================================================================

@@ -10,15 +10,18 @@
 provider "azurerm" {
   features {}
 
-  subscription_id     = var.azure_subscription_id
-  tenant_id           = var.azure_tenant_id
-  use_oidc            = true
-  use_cli             = false
+  # subscription_id            = var.azure_subscription_id
+  # tenant_id                  = var.azure_tenant_id
+  # client_id                  = var.azure_client_id != "" ? var.azure_client_id : null
+  # use_oidc                   = true
+  # use_cli                    = false
+  # skip_provider_registration = true
 }
 
 # Azure AD provider for service principal lookup
 provider "azuread" {
   tenant_id = var.azure_tenant_id
+  client_id = var.azure_client_id != "" ? var.azure_client_id : null
   use_oidc  = true
   use_cli   = false
 }
