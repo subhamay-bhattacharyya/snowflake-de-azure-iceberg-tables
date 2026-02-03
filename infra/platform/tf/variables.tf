@@ -91,12 +91,6 @@ variable "snowflake_config_path" {
 # Snowpipe Notification Integration Variables
 # ============================================================================
 
-variable "snowpipe_azure_app_name" {
-  description = "Azure multi-tenant app name for Snowpipe notification integration (from DESC NOTIFICATION INTEGRATION)"
-  type        = string
-  default     = ""
-}
-
 variable "snowpipe_azure_client_id" {
   description = "Azure client_id for Snowpipe notification integration (extracted from AZURE_CONSENT_URL)"
   type        = string
