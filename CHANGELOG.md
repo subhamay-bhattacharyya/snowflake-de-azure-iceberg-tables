@@ -10,6 +10,17 @@ All notable changes to this project will be documented in this file.
 - Add trailing newline to backend configuration
 - **snowflake:** Update JWT authenticator to use SNOWFLAKE_JWT constant
 - **outputs:** Mark storage_integrations output as sensitive
+- **azure:** Enable OIDC authentication for Azure providers
+- **azure:** Comment out azurerm provider config and add client_id variable
+- Add period to resource_group_name description
+- Add tflint ignore comments for Azure provider variables
+- **azure:** Comment out azure_subscription_id variable and tfvars
+- **azure:** Uncomment azure_subscription_id variable and configuration
+- **azure:** Simplify provider configuration and remove unused variables
+
+### Documentation
+
+- Update CHANGELOG.md [skip ci]
 
 ### Miscellaneous Tasks
 
@@ -21,6 +32,7 @@ All notable changes to this project will be documented in this file.
 - Expand CI workflow branch patterns and add workflow file monitoring
 - **versions:** Update Snowflake provider to >= 1.0.0 across all modules
 - Add workflow concurrency control and fix backend formatting
+- Simplify CI workflow path filters
 
 ### Refactor
 
