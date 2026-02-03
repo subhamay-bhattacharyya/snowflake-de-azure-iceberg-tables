@@ -1,549 +1,453 @@
-# Snowflake Lakehouse
+# Snowflake Iceberg Lakehouse on Azure
 
-![Built with Kiro](https://img.shields.io/badge/Built_with-Kiro-8845f4?logo=robot&logoColor=white)&nbsp;![Commit Activity](https://img.shields.io/github/commit-activity/t/subhamay-bhattacharyya/aws-snowflake-e2e-project)&nbsp;![Last Commit](https://img.shields.io/github/last-commit/subhamay-bhattacharyya/aws-snowflake-e2e-project)&nbsp;![Release Date](https://img.shields.io/github/release-date/subhamay-bhattacharyya/aws-snowflake-e2e-project)&nbsp;![Repo Size](https://img.shields.io/github/repo-size/subhamay-bhattacharyya/aws-snowflake-e2e-project)&nbsp;![File Count](https://img.shields.io/github/directory-file-count/subhamay-bhattacharyya/aws-snowflake-e2e-project)&nbsp;![Issues](https://img.shields.io/github/issues/subhamay-bhattacharyya/aws-snowflake-e2e-project)&nbsp;![Top Language](https://img.shields.io/github/languages/top/subhamay-bhattacharyya/aws-snowflake-e2e-project)&nbsp;![Custom Endpoint](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/bsubhamay/afb632c4d78d83fbc1e6b4486d5720a4/raw/aws-snowflake-e2e-project.json?)
+![Built with Kiro](https://img.shields.io/badge/Built_with-Kiro-8845f4?logo=robot&logoColor=white)&nbsp;![Terraform](https://img.shields.io/badge/Terraform-1.14+-623CE4?logo=terraform)&nbsp;![Azure](https://img.shields.io/badge/Azure-0078D4?logo=microsoftazure)&nbsp;![Snowflake](https://img.shields.io/badge/Snowflake-29B5E8?logo=snowflake)
 
-A Snowflake Lakehouse implementation with AWS and Infrastructure as Code (Terraform), automated deployment using GitHub Actions.
+A production-ready implementation of Apache Iceberg tables on Azure Blob Storage with Snowflake, fully automated with Terraform and GitHub Actions.
 
 ## Overview
 
-This repository tracks the build of an end-to-end Snowflake data engineering solution—from source data analysis and ingestion design to layered stage/raw/curated modeling, automation with DAG + GitHub Actions, dynamic tables, and Streamlit dashboards—using Snowpark Python and marketplace datasets.
+This repository provides a complete data lakehouse solution featuring:
 
-The project demonstrates a complete data lakehouse implementation with:
+- **Apache Iceberg Tables**: Open table format for analytics on Azure Blob Storage
+- **Snowflake Integration**: Query Iceberg tables using Snowflake's external catalog
+- **Infrastructure as Code**: Terraform configurations for Azure and Snowflake resources
+- **Automated Data Pipeline**: Snowpipe → Staging Table → Stream → Task → Iceberg Table
+- **CI/CD Ready**: Two-phase GitHub Actions deployment with manual consent step
 
-- **Infrastructure as Code**: Terraform configurations for AWS (S3, IAM) and Snowflake resources
-- **Layered Data Architecture**: Stage → Raw → Curated data modeling pattern
-- **Automated Ingestion**: Snowpipe for real-time data loading from S3
-- **Data Transformation**: Snowpark Python for ETL/ELT processing
-- **Orchestration**: DAG-based workflows with GitHub Actions CI/CD
-- **Dynamic Tables**: Incremental data processing with automatic refresh
-- **Visualization**: Streamlit dashboards for data exploration
-- **Marketplace Integration**: Leveraging Snowflake marketplace datasets
+## Architecture
+
+```mermaid
+flowchart TB
+    subgraph Azure["☁️ Azure Cloud"]
+        subgraph RG["Resource Group"]
+            SA["🗄️ Storage Account<br/>(ADLS Gen2)"]
+            subgraph Container["📦 Blob Container: iceberg-data"]
+                RAW["📁 iceberg/raw-data/csv/"]
+                ICEBERG["📁 iceberg/sales/orders/<br/>(Iceberg metadata + data)"]
+            end
+            QUEUE["📬 Storage Queue<br/>(snowpipe-notifications)"]
+            EG["⚡ Event Grid<br/>(BlobCreated events)"]
+        end
+    end
+
+    subgraph Snowflake["❄️ Snowflake"]
+        subgraph Security["🔐 Security"]
+            SI["Storage Integration<br/>(Azure Blob Access)"]
+            NI["Notification Integration<br/>(Queue Access)"]
+            EV["External Volume<br/>(Iceberg Storage)"]
+        end
+        
+        subgraph Pipeline["🔄 Data Pipeline"]
+            STAGE["📥 External Stage<br/>(CSV files)"]
+            PIPE["🚰 Snowpipe<br/>(Auto-ingest)"]
+            STAGING["📋 Staging Table<br/>(DEMO_ORDERS_STAGING)"]
+            STREAM["🌊 Stream<br/>(CDC capture)"]
+            TASK["⏰ Task<br/>(1 min schedule)"]
+        end
+        
+        subgraph Tables["📊 Tables"]
+            ICE_TABLE["🧊 Iceberg Table<br/>(ORDERS_ICEBERG)"]
+        end
+    end
+
+    subgraph AzureAD["🔑 Azure AD"]
+        SP1["Service Principal<br/>(External Volume)"]
+        SP2["Service Principal<br/>(Notification Int)"]
+    end
+
+    %% Data Flow
+    RAW -->|"LIST files"| STAGE
+    STAGE -->|"COPY INTO"| PIPE
+    PIPE -->|"Load data"| STAGING
+    STAGING -->|"CDC"| STREAM
+    STREAM -->|"INSERT"| TASK
+    TASK -->|"Write"| ICE_TABLE
+    ICE_TABLE -->|"Store"| ICEBERG
+
+    %% Event Flow
+    RAW -.->|"BlobCreated"| EG
+    EG -.->|"Notify"| QUEUE
+    QUEUE -.->|"Trigger"| NI
+    NI -.->|"Activate"| PIPE
+
+    %% Auth Flow
+    SI -->|"OAuth"| SP1
+    NI -->|"OAuth"| SP2
+    SP1 -->|"Blob Access"| SA
+    SP2 -->|"Queue Access"| QUEUE
+    EV -->|"OAuth"| SP1
+
+    classDef azure fill:#0078D4,color:white
+    classDef snowflake fill:#29B5E8,color:white
+    classDef storage fill:#FF9900,color:white
+    classDef security fill:#DD344C,color:white
+    
+    class SA,QUEUE,EG,RG azure
+    class SI,NI,EV,STAGE,PIPE,STAGING,STREAM,TASK,ICE_TABLE snowflake
+    class RAW,ICEBERG,Container storage
+    class SP1,SP2,AzureAD security
+```
+
+## Data Flow
+
+```mermaid
+sequenceDiagram
+    participant User as 👤 User/App
+    participant Blob as 📦 Azure Blob
+    participant EG as ⚡ Event Grid
+    participant Queue as 📬 Storage Queue
+    participant Pipe as 🚰 Snowpipe
+    participant Stage as 📋 Staging Table
+    participant Stream as 🌊 Stream
+    participant Task as ⏰ Task
+    participant Iceberg as 🧊 Iceberg Table
+
+    User->>Blob: Upload CSV file
+    Blob->>EG: BlobCreated event
+    EG->>Queue: Route to queue
+    Queue->>Pipe: Trigger notification
+    Pipe->>Blob: Read from stage
+    Pipe->>Stage: COPY INTO staging
+    Stage->>Stream: CDC capture (append)
+    
+    loop Every 1 minute
+        Task->>Stream: Check SYSTEM$STREAM_HAS_DATA
+        alt Has Data
+            Task->>Stream: SELECT from stream
+            Task->>Iceberg: INSERT INTO iceberg
+        end
+    end
+    
+    User->>Iceberg: SELECT * FROM iceberg
+    Iceberg-->>User: Query results
+```
+
+## Two-Phase Deployment
+
+```mermaid
+flowchart LR
+    subgraph Phase1["📦 Phase 1: Base Infrastructure"]
+        A1["Azure Resources<br/>• Resource Group<br/>• Storage Account<br/>• Container<br/>• Queue<br/>• Event Grid"]
+        A2["Snowflake Resources<br/>• Warehouse<br/>• Database/Schema<br/>• External Volume<br/>• Storage Integration<br/>• Notification Integration<br/>• Stage, Table, Stream, Task, Pipe"]
+    end
+
+    subgraph Manual["🔐 Manual Consent (Required)"]
+        M1["1️⃣ DESC EXTERNAL VOLUME<br/>→ Click AZURE_CONSENT_URL"]
+        M2["2️⃣ DESC NOTIFICATION INTEGRATION<br/>→ Click AZURE_CONSENT_URL<br/>→ Copy client_id"]
+    end
+
+    subgraph Phase2["🔑 Phase 2: Role Assignments"]
+        B1["External Volume SP<br/>• Storage Blob Data Contributor<br/>• Storage Blob Delegator"]
+        B2["Notification Int SP<br/>• Storage Queue Data Contributor<br/>• Storage Queue Data Message Processor<br/>• Storage Queue Data Reader"]
+    end
+
+    Phase1 --> Manual
+    Manual --> Phase2
+
+    style Manual fill:#FFE4B5,stroke:#FF8C00
+```
 
 ## Repository Structure
 
 ```
 .
-├── infra/                          # Infrastructure as Code (Terraform)
-│   ├── platform/tf/                # Root orchestration module (entry point)
-│   │   ├── main.tf                 # Orchestrates AWS + Snowflake modules
-│   │   ├── locals.tf               # Configuration parsing from JSON
-│   │   ├── variables.tf            # Input variables
-│   │   ├── outputs.tf              # Module outputs
-│   │   ├── versions.tf             # Provider version constraints
-│   │   ├── backend.tf              # Terraform Cloud backend
-│   │   ├── providers-aws.tf        # AWS provider configuration
-│   │   └── providers-snowflake.tf  # Snowflake provider configuration
-│   ├── aws/tf/                     # AWS child module
-│   │   ├── main.tf                 # S3 bucket + IAM role orchestration
-│   │   ├── modules/                # Nested modules (s3, iam, iam_role_final, s3_event_notification)
-│   │   └── templates/              # Bucket policy templates
-│   └── snowflake/tf/               # Snowflake child module
-│       ├── main.tf                 # Warehouses, databases, stages, pipes
-│       └── modules/                # Nested modules (warehouse, database, stage, etc.)
-├── input-jsons/                    # Configuration files
-│   ├── aws/config.json             # AWS resource configuration
-│   └── snowflake/config.json       # Snowflake resource configuration
-├── snowflake-ddl/                  # Snowflake DDL Scripts
-│   ├── 00_account/                 # Account-level objects (resource monitors, network policies)
-│   ├── 01_security/                # Roles, users, grants
-│   ├── 02_warehouses/              # Virtual warehouses
-│   ├── 03_databases/               # Database definitions
-│   ├── 04_storage/                 # Storage integrations & external stages
-│   ├── 05_schemas/                 # Schema-level objects (tables, views)
-│   ├── 06_pipes/                   # Snowpipe definitions
-│   ├── 07_tasks/                   # Task definitions
-│   ├── 08_functions/               # UDFs and UDTFs
-│   ├── 09_procedures/              # Stored procedures
-│   ├── environments/               # Environment configs (dev/staging/prod)
-│   └── scripts/                    # Utility scripts (deploy, rollback, validate)
-├── .github/
-│   └── workflows/                  # GitHub Actions workflows (ci.yaml, etc.)
-├── .devcontainer/                  # Dev container configuration
-├── cliff.toml                      # git-cliff changelog configuration
-└── utils/                          # Utility scripts
+├── infra/
+│   ├── platform/tf/           # Root orchestration module (entry point)
+│   │   ├── main.tf            # Orchestrates Azure + Snowflake + Role Assignments
+│   │   ├── locals.tf          # Configuration parsing from JSON
+│   │   ├── variables.tf       # Input variables (incl. deployment_phase)
+│   │   ├── outputs.tf         # Module outputs
+│   │   ├── providers-azure.tf # Azure + AzureAD provider config
+│   │   ├── providers-snowflake.tf
+│   │   └── terraform.tfvars   # Variable values
+│   ├── azure/tf/              # Azure child module
+│   │   ├── main.tf            # Resource Group, Storage, Queue, Event Grid
+│   │   └── modules/           # Nested modules (resource_group, storage_account, storage_container)
+│   └── snowflake/tf/          # Snowflake child module
+│       ├── main.tf            # Warehouses, databases, stages, pipes, streams, tasks
+│       └── modules/           # Nested modules (external_volume, stream, task)
+├── input-jsons/
+│   ├── azure/config.json      # Azure resource configuration
+│   └── snowflake/config.json  # Snowflake resource configuration
+├── sample-data/               # Sample CSV files for testing
+├── snowflake-ddl/             # Snowflake DDL Scripts (reference)
+└── .github/workflows/         # GitHub Actions workflows
 ```
-
-## Architecture
-
-This project uses a **4-phase architecture**:
-
-### Phase 1: AWS Resources
-- S3 Bucket for data storage
-- IAM Role with placeholder trust policy
-
-### Phase 2: Snowflake Resources
-- Warehouses, Databases, Schemas
-- File Formats, Storage Integration
-- External Stages, Tables, Snowpipes
-
-### Phase 3: AWS Trust Policy Update
-- Update IAM Role trust policy with Snowflake's IAM User ARN and External ID
-
-### Phase 4: S3 Event Notifications
-- Configure S3 bucket notifications to trigger Snowpipe auto-ingest
 
 ## Getting Started
 
 ### Prerequisites
 
-- **Terraform** >= 1.0
-- **Snowflake Account** with appropriate permissions
-- **AWS Account** with IAM permissions
-- **GitHub Repository** with Actions enabled
+- **Terraform** >= 1.14
+- **Azure CLI** with active subscription
+- **Snowflake Account** with ACCOUNTADMIN access
+- **GitHub Repository** (for CI/CD)
 
-#### One-Time Snowflake Setup
+### Quick Start (Local)
 
-Before using this action, run the following SQL script in Snowflake to create the utility infrastructure (only needs to be run once):
+#### 1. Clone and Configure
 
-**Step 1: Create Utility Infrastructure**
+```bash
+git clone <repository-url>
+cd <repository>
+
+# Update configuration files
+# - input-jsons/azure/config.json
+# - input-jsons/snowflake/config.json
+# - infra/platform/tf/terraform.tfvars
+```
+
+#### 2. Authenticate
+
+```bash
+# Azure
+az login
+
+# Snowflake (set private key)
+export SNOWFLAKE_PRIVATE_KEY=$(cat path/to/snowflake_key.p8)
+```
+
+#### 3. Phase 1 Deployment
+
+```bash
+cd infra/platform/tf
+terraform init
+terraform apply -var="deployment_phase=1"
+```
+
+#### 4. Grant Azure Consent (Manual Step)
+
+Run in Snowflake:
 
 ```sql
--- =========================================================
--- Snowflake Utility Setup for DDL Migrations
--- =========================================================
--- This script creates:
---   1. A dedicated warehouse for CI/CD metadata operations
---   2. Utility database (UTIL_DB)
---   3. Utility schema (UTIL_SCHEMA)
---   4. DDL migration history table
---
--- Safe to re-run (idempotent)
--- =========================================================
+-- Get External Volume consent URL
+DESC EXTERNAL VOLUME DEMO_AZURE_ICEBERG_VOLUME;
+-- Open AZURE_CONSENT_URL in browser → Grant consent
 
--- -----------------------------------------------------------
--- 1. Create and use a dedicated warehouse
--- -----------------------------------------------------------
-CREATE WAREHOUSE IF NOT EXISTS UTIL_WH
-  WAREHOUSE_SIZE = 'XSMALL'
-  WAREHOUSE_TYPE = 'STANDARD'
-  AUTO_SUSPEND = 60
-  AUTO_RESUME = TRUE
-  INITIALLY_SUSPENDED = TRUE
-  COMMENT = 'Warehouse for CI/CD utility operations and DDL migration tracking';
-
-USE WAREHOUSE UTIL_WH;
-
--- -----------------------------------------------------------
--- 2. Create utility database and schema
--- -----------------------------------------------------------
-CREATE DATABASE IF NOT EXISTS UTIL_DB
-  COMMENT = 'Utility database for CI/CD metadata and migration tracking';
-
-CREATE SCHEMA IF NOT EXISTS UTIL_DB.UTIL_SCHEMA
-  COMMENT = 'Utility schema for migration and operational tables';
-
--- -----------------------------------------------------------
--- 3. Create DDL migration history table
--- -----------------------------------------------------------
-CREATE TABLE IF NOT EXISTS UTIL_DB.UTIL_SCHEMA.DDL_MIGRATION_HISTORY (
-  script_name    STRING        NOT NULL,
-  script_path    STRING        NOT NULL,
-  checksum       STRING        NOT NULL,
-  applied_at     TIMESTAMP_LTZ NOT NULL DEFAULT CURRENT_TIMESTAMP(),
-  status         STRING        NOT NULL,
-  error_message  STRING,
-  run_id         STRING,
-  actor          STRING
-) COMMENT = 'Tracks executed Snowflake DDL migration scripts for CI/CD pipelines';
-
--- -----------------------------------------------------------
--- 4. (Optional) Verify creation
--- -----------------------------------------------------------
-SELECT
-  'UTIL_DB.UTIL_SCHEMA.DDL_MIGRATION_HISTORY created successfully' AS status,
-  CURRENT_TIMESTAMP() AS verified_at;
+-- Get Notification Integration consent URL  
+DESC NOTIFICATION INTEGRATION DEMO_AZURE_SNOWPIPE_INT;
+-- Open AZURE_CONSENT_URL in browser → Grant consent
+-- Copy client_id from URL (e.g., ?client_id=XXXXXXXX)
 ```
 
-**Step 2: Grant MANAGE GRANTS Privilege to SYSADMIN**
+#### 5. Phase 2 Deployment
 
-SYSADMIN needs the MANAGE GRANTS privilege to grant permissions to other roles like PUBLIC. Run this as ACCOUNTADMIN:
+```bash
+# Update terraform.tfvars with client_id from step 4
+# snowpipe_azure_client_id = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+
+terraform apply -var="deployment_phase=2"
+```
+
+#### 6. Create Iceberg Table
 
 ```sql
-USE ROLE ACCOUNTADMIN;
-
--- Grant MANAGE GRANTS privilege to SYSADMIN
--- This allows SYSADMIN to grant privileges on objects it owns
-GRANT MANAGE GRANTS ON ACCOUNT TO ROLE SYSADMIN;
-
--- Verify the grant
-SHOW GRANTS TO ROLE SYSADMIN;
+CREATE OR REPLACE ICEBERG TABLE DEMO_ICEBERG_DB.RAW_DATA.ORDERS_ICEBERG (
+    order_id STRING,
+    customer_id STRING,
+    order_date DATE,
+    product STRING,
+    quantity INT,
+    unit_price DECIMAL(10,2),
+    region STRING
+)
+CATALOG = 'SNOWFLAKE'
+EXTERNAL_VOLUME = 'DEMO_AZURE_ICEBERG_VOLUME'
+BASE_LOCATION = 'iceberg/sales/orders/';
 ```
 
-**Note:** With this setup, SYSADMIN can both create objects and manage their permissions, simplifying the deployment process.
+#### 7. Test Data Loading
 
-**Note:** If you want to use a different database/schema/table name, you can customize it using the `migrations_table` input parameter in the GitHub Actions workflow.
-
-### 1. Create Dedicated Service Account
-
-For security best practices, create a dedicated service account for GitHub Actions instead of using your personal account.
-
-#### Step 1: Generate Key Pair
-
-On your local machine, generate an RSA key pair:
-
-**Option A: Without Passphrase (Recommended for CI/CD)**
 ```bash
-# Generate unencrypted PKCS8 private key (no passphrase)
-openssl genrsa 2048 | openssl pkcs8 -topk8 -inform PEM -out snowflake_key.p8 -nocrypt
-
-# Generate public key
-openssl rsa -in snowflake_key.p8 -pubout -out snowflake_key.pub
+# Upload sample data
+az storage blob upload \
+  --account-name <storage-account> \
+  --container-name iceberg-data \
+  --name iceberg/raw-data/csv/orders_2024_01.csv \
+  --file sample-data/orders_2024_01.csv \
+  --auth-mode login
 ```
-
-**Option B: With Passphrase (For enhanced security)**
-```bash
-# Generate encrypted PKCS8 private key (with passphrase)
-openssl genrsa 2048 | openssl pkcs8 -topk8 -inform PEM -out snowflake_key.p8 -v2 aes-256-cbc
-
-# Generate public key
-openssl rsa -in snowflake_key.p8 -pubout -out snowflake_key.pub
-```
-
-**Extract public key value** (for both options):
-```bash
-# Remove header/footer and newlines for Snowflake
-grep -v "BEGIN PUBLIC" snowflake_key.pub | grep -v "END PUBLIC" | tr -d '\n'
-```
-
-**Save the output** - you'll need it for the next step.
-
-**Note:** If using a passphrase, you'll need to provide `SNOWFLAKE_PRIVATE_KEY_PASSPHRASE` as an additional secret.
-
-#### Step 2: Create Service Account in Snowflake
-
-Run this SQL in Snowflake (replace `YOUR_PUBLIC_KEY_HERE` with the output from Step 1):
 
 ```sql
--- =========================================================
--- Create Service Account for GitHub Actions
--- =========================================================
+-- Refresh pipe (if auto-ingest disabled)
+ALTER PIPE DEMO_ICEBERG_DB.RAW_DATA.DEMO_ORDERS_PIPE REFRESH;
 
--- Create dedicated service account
-CREATE USER IF NOT EXISTS GH_ACTIONS_USER
-  RSA_PUBLIC_KEY = 'YOUR_PUBLIC_KEY_HERE'
-  DEFAULT_ROLE = SYSADMIN
-  DEFAULT_WAREHOUSE = COMPUTE_WH
-  MUST_CHANGE_PASSWORD = FALSE
-  COMMENT = 'Service account for GitHub Actions CI/CD deployments';
+-- Check staging table
+SELECT * FROM DEMO_ICEBERG_DB.RAW_DATA.DEMO_ORDERS_STAGING;
 
--- Grant SYSADMIN role (for DDL and grant operations)
-GRANT ROLE SYSADMIN TO USER GH_ACTIONS_USER;
+-- Resume task to move data to Iceberg
+ALTER TASK DEMO_ICEBERG_DB.RAW_DATA.DEMO_ORDERS_TO_ICEBERG RESUME;
 
--- Grant usage on warehouses
-GRANT USAGE ON WAREHOUSE UTIL_WH TO ROLE SYSADMIN;
-GRANT USAGE ON WAREHOUSE COMPUTE_WH TO ROLE SYSADMIN;
-
--- Grant usage on the utility database
-GRANT USAGE ON DATABASE UTIL_DB TO ROLE SYSADMIN;
-GRANT USAGE ON SCHEMA UTIL_DB.UTIL_SCHEMA TO ROLE SYSADMIN;
-
--- Grant create privileges for the migration table
-GRANT CREATE TABLE ON SCHEMA UTIL_DB.UTIL_SCHEMA TO ROLE SYSADMIN;
-
--- Grant all privileges on the migration table (if it already exists)
-GRANT ALL PRIVILEGES ON TABLE UTIL_DB.UTIL_SCHEMA.DDL_MIGRATION_HISTORY TO ROLE SYSADMIN;
-
--- If the user needs to create the database/schema (first run)
-GRANT CREATE DATABASE ON ACCOUNT TO ROLE SYSADMIN;
-
--- Verify the user's role
-DESC USER GH_ACTIONS_USER;
-
--- See what roles the user has
-SHOW GRANTS TO USER GH_ACTIONS_USER;
-
--- See what the SYSADMIN role can do
-SHOW GRANTS TO ROLE SYSADMIN;
-
+-- Query Iceberg table
+SELECT * FROM DEMO_ICEBERG_DB.RAW_DATA.ORDERS_ICEBERG;
 ```
 
-**Security Notes:**
-- ✅ Use `SYSADMIN` role for all DDL and grant operations
-- ✅ Grant `MANAGE GRANTS` privilege to SYSADMIN for permission management
-- ✅ Key-pair authentication is more secure than passwords
-- ✅ Service accounts provide better audit trails
-- ✅ Never commit private keys to the repository
+### GitHub Actions Deployment
 
-### 2. Configure GitHub Secrets and Variables
+The repository includes a two-phase GitHub Actions workflow:
 
-Set up GitHub Actions authentication. Navigate to **Settings → Secrets and variables → Actions**.
-
-#### Required Repository Variables
-
-| Variable Name | Description | Example |
-|---------------|-------------|---------|
-| `SNOWFLAKE_ORGANIZATION_NAME` | Snowflake organization name | `AGXUOKJ` |
-| `SNOWFLAKE_ACCOUNT_NAME` | Snowflake account name | `JKC15404` |
-| `SNOWFLAKE_USER` | Service account username | `GH_ACTIONS_USER` |
-| `SNOWFLAKE_ROLE` | Snowflake role for deployments | `SYSADMIN` |
-| `AWS_REGION` | AWS region for resources | `us-east-1` |
-| `TF_LINT_VER` | TFLint version (optional) | `v0.50.0` |
-
-#### Required Repository Secrets
-
-| Secret Name | Description |
-|-------------|-------------|
-| `SNOWFLAKE_PRIVATE_KEY` | Content of `snowflake_key.p8` file (including `-----BEGIN/END PRIVATE KEY-----` headers) |
-| `TF_TOKEN_APP_TERRAFORM_IO` | Terraform Cloud API token for remote backend |
-| `AWS_OIDC_ROLE_ARN` | AWS IAM role ARN for OIDC authentication (e.g., `arn:aws:iam::123456789012:role/github-actions-role`) |
-
-#### How to Get These Values
-
-**Snowflake Variables:**
-1. Log into Snowflake
-2. Organization name: Found in your account URL (`https://<org>-<account>.snowflakecomputing.com`)
-3. Account name: Same as above
-4. User/Role: Created in the service account setup (Step 1)
-
-**Snowflake Private Key:**
-1. Generated in Step 1 (`snowflake_key.p8`)
-2. Copy the entire file content including headers
-
-**Terraform Cloud Token:**
-1. Go to [Terraform Cloud](https://app.terraform.io)
-2. Navigate to **User Settings → Tokens**
-3. Create a new API token
-
-**AWS OIDC Role ARN:**
-1. Set up OIDC in AWS (see [AWS OIDC Setup](#3-aws-oidc-setup-optional-but-recommended))
-2. Copy the IAM role ARN
-
-### 2a. Configure Codespaces Secrets (For Terraform Development)
-
-If you're running Terraform from GitHub Codespaces, you need to configure Codespaces secrets for authentication.
-
-**Quick setup:**
-
-Navigate to: **Settings → Secrets and variables → Codespaces**
-
-Add these secrets:
-
-**Snowflake Authentication:**
-| Secret Name | Description |
-|-------------|-------------|
-| `TF_VAR_snowflake_organization_name` | Snowflake organization name |
-| `TF_VAR_snowflake_account_name` | Snowflake account name |
-| `TF_VAR_snowflake_user` | Snowflake username |
-| `TF_VAR_snowflake_private_key` | Content of `snowflake_key.p8` |
-| `TF_VAR_snowflake_role` | Set to `SYSADMIN` |
-
-**AWS Authentication:**
-| Secret Name | Description |
-|-------------|-------------|
-| `AWS_ACCESS_KEY_ID` | From AWS IAM |
-| `AWS_SECRET_ACCESS_KEY` | From AWS IAM |
-| `AWS_DEFAULT_REGION` | e.g., `us-east-1` |
-
-**Note:** GitHub Actions secrets and Codespaces secrets are stored separately. You need to configure both, but you can use the same values.
-
-### 3. AWS OIDC Setup (Optional but Recommended)
-
-For secure GitHub Actions authentication with AWS without long-lived credentials, set up OIDC (OpenID Connect). This eliminates the need to store AWS access keys in GitHub Secrets.
-
-**See detailed setup instructions:** [infra/aws/README.md](infra/aws/README.md)
-
-**Benefits:**
-- ✅ No AWS access keys stored in GitHub Secrets
-- ✅ Short-lived tokens that expire automatically
-- ✅ Improved security posture
-- ✅ Recommended by AWS and GitHub
-
-## Snowflake Object Organization
-
-Scripts are organized by execution order:
-
-1. **00_account**: Resource monitors, network policies
-2. **01_security**: Roles, users, grants
-3. **02_warehouses**: Virtual warehouses
-4. **03_databases**: Database creation
-5. **04_storage**: Storage integrations and external stages
-6. **05_schemas**: Tables, views, streams
-7. **06_pipes**: Snowpipe for automated ingestion
-8. **07_tasks**: Scheduled tasks
-9. **08_functions**: User-defined functions
-10. **09_procedures**: Stored procedures
-
-## Sample Implementation
-
-The repository includes sample implementations:
-
-- **Warehouse**: `COMPUTE_WH` (small, auto-suspend)
-- **Database**: `RAW_DB` with sales, marketing, finance schemas
-- **Tables**: 
-  - `customer_orders` - Order transactions
-  - `customer_master` - Customer data
-  - `product_catalog` - Product information
-
-## GitHub Actions Workflow
-
-The deployment workflow (`snowflake-deploy.yaml`) automatically:
-
-- Discovers all SQL files in the repository
-- Deploys them in dependency order
-- Runs files in parallel within each stage
-- Uses the reusable action: `subhamay-bhattacharyya-gha/snowflake-run-ddl-action`
-
-**Triggers**:
-- Push to `main` or `develop` branches (when `snowflake/**` files change)
-- Pull requests to `main` or `develop`
-- Manual workflow dispatch
-
-## Best Practices
-
-### Migration Tracking
-
-By default, the action tracks which scripts have been applied using a migrations table. This enables:
-
-- **Idempotent execution**: Scripts are only run once (based on path + checksum)
-- **Change detection**: If a script's content changes, it will be re-run
-- **Audit trail**: Complete history of what was applied, when, and by whom
-
-#### Migration Table Schema
-
-The default table `UTIL_DB.UTIL_SCHEMA.DDL_MIGRATION_HISTORY` contains:
-
-- `script_name` - Filename of the script
-- `script_path` - Full path to the script
-- `checksum` - SHA-256 hash of the script content
-- `applied_at` - Timestamp when applied
-- `status` - SUCCESS or FAILED
-- `error_message` - Error details if failed
-- `run_id` - GitHub Actions run ID
-- `actor` - GitHub user who triggered the run
-
-#### Baseline Mode
-
-Use baseline mode to mark existing scripts as applied without executing them. This is useful when:
-
-- Adopting this action in an existing environment
-- Scripts have already been manually applied
-- You want to start tracking from a known state
-
-To enable baseline mode in the workflow:
-
-```yaml
-- name: Deploy with baseline
-  uses: subhamay-bhattacharyya-gha/snowflake-run-ddl-action@v1
-  with:
-    baseline: true
-    # ... other parameters
-```
-
-#### Disabling Migration Tracking
-
-To run scripts without tracking (not recommended for production):
-
-```yaml
-- name: Deploy without tracking
-  uses: subhamay-bhattacharyya-gha/snowflake-run-ddl-action@v1
-  with:
-    track_migrations: false
-    # ... other parameters
-```
-
-### SQL Scripts
-- Use `CREATE OR REPLACE` or `CREATE IF NOT EXISTS` for idempotency
-- Add meaningful comments to all objects
-- Number files for execution order (01_, 02_, etc.)
-- Test in dev before promoting to staging/prod
-
-### Security
-- Never commit credentials or private keys
-- Use service accounts for automation
-- Implement least privilege access
-- Rotate keys regularly
-
-### Infrastructure
-- Use remote state storage for Terraform
-- Enable state locking
-- Tag all resources consistently
-- Use separate environments (dev/staging/prod)
-
-## Documentation
-
-- [Infrastructure Setup](infra/README.md)
-- [Snowflake DDL Scripts](snowflake/README.md)
-- [GitHub Actions Setup](.github/SETUP.md)
-- [Deployment Scripts](snowflake/scripts/README.md)
-
-## Contributing
-
-### Commit Message Convention
-
-This project uses [Conventional Commits](https://www.conventionalcommits.org/) for automated changelog generation. Please format your commit messages as follows:
-
-```
-<type>: <description>
-
-[optional body]
-```
-
-#### Commit Types
-
-| Type | Description | Example |
-|------|-------------|---------|
-| `feat` | New feature or functionality | `feat: add Azure storage integration support` |
-| `fix` | Bug fix | `fix: correct IAM trust policy condition` |
-| `docs` | Documentation changes | `docs: update README with setup instructions` |
-| `style` | Code style changes (formatting, whitespace) | `stylhttps://agxuokj-jkc15404.snowflakecomputing.com/console/login?activationToken=ver%3A1-hint%3A344489740-ETMsDgAAAZuzoPggABRBRVMvQ0JDL1BLQ1M1UGFkZGluZwEAABAAEBldmu8VANRBCTUgQE%2F7RGgAAABg%2Bi1xEnXGEcqx%2BVMauNO9GmzhCnHTRbWhExX%2Ftsk%2BfZHPKbTjNV61u9%2B%2BjuAiPOgpm%2FYk6MsqkwrbcUM5%2F9LYDHnEoUuMjYN5A7MZDQWpWfx2y6ERIZO3Uq1CuKFbCZbEABTZyEHS0WcfOoqbc3Dw6%2FyEs1zyow%3D%3De: fix indentation in main.tf` |
-| `refactor` | Code refactoring without feature changes | `refactor: simplify locals.tf configuration` |
-| `perf` | Performance improvements | `perf: optimize S3 bucket policy lookup` |
-| `test` | Adding or updating tests | `test: add validation for warehouse config` |
-| `chore` | Maintenance tasks, dependencies | `chore: update Terraform provider versions` |
-| `ci` | CI/CD configuration changes | `ci: add changelog generation to workflow` |
-
-#### Examples
-
+#### Phase 1: Base Infrastructure
 ```bash
-# Feature
-git commit -m "feat: add Snowpipe auto-ingest configuration"
-
-# Bug fix
-git commit -m "fix: resolve storage integration ARN reference"
-
-# Documentation
-git commit -m "docs: add commit message guidelines to README"
-
-# With scope (optional)
-git commit -m "feat(snowflake): add file format support for Parquet"
-
-# With breaking change
-git commit -m "feat!: change storage integration naming convention"
+# Trigger manually with:
+# - deployment_phase = 1
+# - snowpipe_azure_client_id = (leave empty)
 ```
 
-#### Why This Matters
+#### Manual Consent Step
+Follow the console output instructions to grant Azure consent.
 
-- Commits are automatically categorized in the changelog
-- Release notes are generated from commit messages
-- Makes it easier to understand project history
-- Enables semantic versioning automation
+#### Phase 2: Role Assignments
+```bash
+# Trigger manually with:
+# - deployment_phase = 2  
+# - snowpipe_azure_client_id = <client-id-from-consent-url>
+```
 
-### Development Workflow
+## Configuration
 
-1. Create a feature branch from `main`
-2. Make your changes
-3. Test in dev environment
-4. Create a pull request with description
-5. Wait for approval and automated deployment
+### Azure Configuration (`input-jsons/azure/config.json`)
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines.
+```json
+{
+  "azure": {
+    "resource_group": {
+      "name": "snowflake-iceberg-rg",
+      "location": "eastus"
+    },
+    "storage_account": {
+      "base_name": "snwiceberg",
+      "account_tier": "Standard",
+      "replication_type": "LRS",
+      "is_hns_enabled": true
+    },
+    "storage_container": {
+      "name": "iceberg-data",
+      "access_type": "private"
+    },
+    "table_root_prefixes": [
+      "iceberg/sales/orders",
+      "iceberg/raw-data/csv"
+    ]
+  }
+}
+```
+
+### Snowflake Configuration (`input-jsons/snowflake/config.json`)
+
+```json
+{
+  "warehouses": {
+    "load_wh": {
+      "name": "LOAD_WH",
+      "warehouse_size": "X-SMALL",
+      "auto_suspend": 60
+    }
+  },
+  "external_volumes": {
+    "azure_iceberg": {
+      "name": "AZURE_ICEBERG_VOLUME",
+      "storage_location_name": "azure-iceberg-location"
+    }
+  },
+  "databases": {
+    "iceberg_db": {
+      "name": "ICEBERG_DB",
+      "schemas": [
+        { "name": "RAW_DATA" },
+        { "name": "UTIL" }
+      ]
+    }
+  }
+}
+```
+
+### Terraform Variables (`terraform.tfvars`)
+
+```hcl
+# Project
+project_code = "demo"
+environment  = "devl"
+
+# Azure
+azure_subscription_id = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+azure_tenant_id       = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+
+# Snowflake
+snowflake_organization_name = "ORGNAME"
+snowflake_account_name      = "ACCOUNTNAME"
+snowflake_user              = "GH_ACTIONS_USER"
+snowflake_role              = "ACCOUNTADMIN"
+
+# Deployment phase (1 or 2)
+deployment_phase = 1
+
+# Snowpipe client_id (required for phase 2)
+snowpipe_azure_client_id = ""
+```
+
+## Troubleshooting
+
+### Common Issues
+
+| Issue | Solution |
+|-------|----------|
+| `Service principal not found` | Grant consent via AZURE_CONSENT_URL first |
+| `Pipe Notifications bind failure` | Ensure all queue roles are assigned to notification integration SP |
+| `Stage shows no files` | Check file path matches stage URL (e.g., `iceberg/raw-data/csv/`) |
+| `Stream has no data` | Enable change tracking on table, recreate stream with `SHOW_INITIAL_ROWS=TRUE` |
+| `403 on Iceberg table creation` | Grant consent to external volume SP, assign blob roles |
+
+### Debug Commands
+
+```sql
+-- Check pipe status
+SELECT SYSTEM$PIPE_STATUS('DEMO_ICEBERG_DB.RAW_DATA.DEMO_ORDERS_PIPE');
+
+-- Check copy history
+SELECT * FROM TABLE(INFORMATION_SCHEMA.COPY_HISTORY(
+  TABLE_NAME => 'DEMO_ICEBERG_DB.RAW_DATA.DEMO_ORDERS_STAGING',
+  START_TIME => DATEADD(HOUR, -24, CURRENT_TIMESTAMP())
+));
+
+-- List files in stage
+LIST @DEMO_ICEBERG_DB.UTIL.DEMO_AZURE_CSV_STAGE;
+
+-- Check task history
+SELECT * FROM TABLE(INFORMATION_SCHEMA.TASK_HISTORY(
+  TASK_NAME => 'DEMO_ORDERS_TO_ICEBERG'
+));
+```
+
+## Resources Created
+
+### Azure
+- Resource Group
+- Storage Account (ADLS Gen2 with HNS)
+- Blob Container with Iceberg prefixes
+- Storage Queue (for Snowpipe notifications)
+- Event Grid System Topic + Subscription
+
+### Snowflake
+- Warehouse (LOAD_WH)
+- Database + Schemas (ICEBERG_DB.RAW_DATA, ICEBERG_DB.UTIL)
+- File Formats (CSV, JSON)
+- Storage Integration (Azure Blob access)
+- Notification Integration (Azure Queue access)
+- External Volume (Iceberg storage)
+- External Stage (CSV ingestion)
+- Staging Table (ORDERS_STAGING)
+- Stream (CDC on staging)
+- Task (Stream to Iceberg)
+- Snowpipe (auto-ingest)
+
+### Azure Role Assignments
+- External Volume SP: Storage Blob Data Contributor, Storage Blob Delegator
+- Notification Integration SP: Storage Queue Data Contributor, Message Processor, Reader
 
 ## License
 
 MIT License - See [LICENSE](LICENSE) for details.
 
-## Support
+## Contributing
 
-For issues and questions:
-- Open an issue in this repository
-- Check existing documentation in the `docs/` folder
-- Review [Snowflake documentation](https://docs.snowflake.com/)
-
-## Roadmap
-
-- [ ] Add data quality checks
-- [ ] Implement dbt integration
-- [ ] Add monitoring and alerting
-- [ ] Create CI/CD for data pipelines
-- [ ] Add Streamlit dashboards
-- [ ] Implement dynamic tables
+See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.

@@ -9,7 +9,7 @@ terraform {
     organization = "subhamay-bhattacharyya-projects"
 
     workspaces {
-      name = "aws-snowflake-e2e-project"
+      name = "snowflake-de-azure-iceberg-tables"
     }
   }
-}
+} 

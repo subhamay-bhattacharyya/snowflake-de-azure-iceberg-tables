@@ -7,13 +7,17 @@ terraform {
   required_version = ">= 1.14.1"
 
   required_providers {
-    aws = {
-      source  = "hashicorp/aws"
-      version = ">= 5.0"
+    azurerm = {
+      source  = "hashicorp/azurerm"
+      version = ">= 4.0"
+    }
+    azuread = {
+      source  = "hashicorp/azuread"
+      version = ">= 2.0"
     }
     snowflake = {
       source  = "snowflakedb/snowflake"
-      version = "0.99.0"
+      version = ">= 1.0.0"
     }
     random = {
       source  = "hashicorp/random"

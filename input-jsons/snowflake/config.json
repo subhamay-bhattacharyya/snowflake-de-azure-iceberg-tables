@@ -12,51 +12,19 @@
       "max_cluster_count": 1,
       "scaling_policy": "STANDARD",
       "initially_suspended": true
-    },
-    "transform_wh": {
-      "name": "TRANSFORM_WH",
-      "comment": "This warehouse will be used for transform activities",
-      "warehouse_size": "X-SMALL",
-      "auto_resume": true,
-      "auto_suspend": 60,
-      "enable_query_acceleration": false,
-      "warehouse_type": "STANDARD",
-      "min_cluster_count": 1,
-      "max_cluster_count": 1,
-      "scaling_policy": "STANDARD",
-      "initially_suspended": true
-    },
-    "streamlit_wh": {
-      "name": "STREAMLIT_WH",
-      "comment": "This warehouse will be used for running Streamlit queries",
-      "warehouse_size": "X-SMALL",
-      "auto_resume": true,
-      "auto_suspend": 60,
-      "enable_query_acceleration": false,
-      "warehouse_type": "STANDARD",
-      "min_cluster_count": 1,
-      "max_cluster_count": 1,
-      "scaling_policy": "STANDARD",
-      "initially_suspended": true
-    },
-    "adhoc_wh": {
-      "name": "ADHOC_WH",
-      "comment": "This warehouse will be used for any adhoc purpose",
-      "warehouse_size": "X-SMALL",
-      "auto_resume": true,
-      "auto_suspend": 60,
-      "enable_query_acceleration": false,
-      "warehouse_type": "STANDARD",
-      "min_cluster_count": 1,
-      "max_cluster_count": 1,
-      "scaling_policy": "STANDARD",
-      "initially_suspended": true
+    }
+  },
+  "external_volumes": {
+    "azure_iceberg": {
+      "name": "AZURE_ICEBERG_VOLUME",
+      "storage_location_name": "azure-iceberg-location",
+      "comment": "External volume for Iceberg tables on Azure Blob Storage"
     }
   },
   "databases": {
-      "bronze": {
-      "name": "BRONZE",
-      "comment": "Bronze layer - Raw data ingestion from source systems",
+    "iceberg_db": {
+      "name": "ICEBERG_DB",
+      "comment": "Database for Iceberg tables with external catalog on Azure",
       "schemas": [
         {
           "name": "RAW_DATA",
@@ -148,31 +116,11 @@
         "orders_pipe": {
           "name": "ORDERS_PIPE",
           "schema": "RAW_DATA",
-          "copy_statement": "COPY INTO BRONZE.RAW_DATA.ORDERS_DATA (order_id, customer_id, order_date, product, quantity, unit_price, region, source_file, load_timestamp) FROM (SELECT $1, $2, $3, $4, $5, $6, $7, METADATA$FILENAME, CURRENT_TIMESTAMP() FROM @BRONZE.UTIL.S3_EXTERNAL_STAGE_CSV) FILE_FORMAT = (FORMAT_NAME = 'BRONZE.UTIL.CSV_FILE_FORMAT') PATTERN = '.*orders.*\\.csv'",
+          "copy_statement": "COPY INTO ICEBERG_DB.RAW_DATA.ORDERS_DATA (order_id, customer_id, order_date, product, quantity, unit_price, region, source_file, load_timestamp) FROM (SELECT $1, $2, $3, $4, $5, $6, $7, METADATA$FILENAME, CURRENT_TIMESTAMP() FROM @ICEBERG_DB.UTIL.S3_EXTERNAL_STAGE_CSV) FILE_FORMAT = (FORMAT_NAME = 'ICEBERG_DB.UTIL.CSV_FILE_FORMAT') PATTERN = '.*orders.*\\.csv'",
           "auto_ingest": true,
           "comment": "Snowpipe for automatic orders CSV data ingestion from S3"
         }
       }
-    },
-    "silver": {
-      "name": "SILVER",
-      "comment": "Silver layer - Cleaned, validated, and conformed data",
-      "schemas": [
-        {
-          "name": "CURATED_DATA",
-          "comment": "Cleaned and validated data ready for analytics"
-        }
-      ]
-    },
-    "gold": {
-      "name": "GOLD",
-      "comment": "Gold layer - Business-ready aggregated and enriched data",
-      "schemas": [
-        {
-          "name": "ANALYTICS",
-          "comment": "Business analytics and aggregated metrics"
-        }
-      ]
     }
   }
 }

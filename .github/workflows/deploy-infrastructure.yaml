@@ -1,0 +1,75 @@
+# -- .github/workflows/deploy-infrastructure.yaml
+# ============================================================================
+# GitHub Actions Workflow: Deploy Infrastructure
+# ============================================================================
+# Two-phase deployment for Snowflake Iceberg on Azure
+#
+# Phase 1: Creates Azure + Snowflake base resources
+# Manual Step: Grant Azure consent via AZURE_CONSENT_URL
+# Phase 2: Creates Azure role assignments for service principals
+# ============================================================================
+
+name: Deploy Infrastructure
+
+on:
+  workflow_dispatch:
+    inputs:
+      deployment_phase:
+        description: 'Deployment phase (1=base infra, 2=full with role assignments)'
+        required: true
+        default: '1'
+        type: choice
+        options:
+          - '1'
+          - '2'
+      snowpipe_azure_client_id:
+        description: 'Snowpipe Azure Client ID (required for phase 2, from AZURE_CONSENT_URL)'
+        required: false
+        default: ''
+
+jobs:
+  terraform-deploy-platform:
+    name: Deploy
+    uses: subhamay-bhattacharyya-gha/tf-deploy-multi-reusable-wf/.github/workflows/terraform-deploy.yaml@feature/GHA-0019-add-platform-based-multi
+    with:
+      cloud-provider: platform
+      tflint-ver: ${{ vars.TF_LINT_VER }}
+      backend-type: remote
+      # azure-region: ${{ vars.AZURE_REGION }}
+      tf-vars-file: terraform.tfvars
+      snowflake-user: ${{ vars.SNOWFLAKE_USER }}
+      snowflake-organization-name: ${{ vars.SNOWFLAKE_ORGANIZATION_NAME }}
+      snowflake-account-name: ${{ vars.SNOWFLAKE_ACCOUNT_NAME }}
+      snowflake-role: ${{ vars.SNOWFLAKE_ROLE }}
+    secrets:
+      tfc-token: ${{ secrets.TF_TOKEN_APP_TERRAFORM_IO }}
+      azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
+      azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+      azure-subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      snowflake-private-key: ${{ secrets.SNOWFLAKE_PRIVATE_KEY }}
+
+  output-consent-urls:
+    name: Output Consent URLs
+    needs: terraform-deploy-platform
+    if: github.event.inputs.deployment_phase == '1'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Display Manual Steps
+        run: |
+          echo "=============================================="
+          echo "MANUAL STEPS REQUIRED BEFORE PHASE 2:"
+          echo "=============================================="
+          echo ""
+          echo "1. Run in Snowflake to get External Volume consent URL:"
+          echo "   DESC EXTERNAL VOLUME DEMO_AZURE_ICEBERG_VOLUME;"
+          echo "   -> Open AZURE_CONSENT_URL in browser and grant consent"
+          echo ""
+          echo "2. Run in Snowflake to get Notification Integration consent URL:"
+          echo "   DESC NOTIFICATION INTEGRATION DEMO_AZURE_SNOWPIPE_INT;"
+          echo "   -> Open AZURE_CONSENT_URL in browser and grant consent"
+          echo "   -> Copy client_id from URL for Phase 2 input"
+          echo ""
+          echo "3. Re-run this workflow with:"
+          echo "   - deployment_phase = 2"
+          echo "   - snowpipe_azure_client_id = <client_id from step 2>"
+          echo "=============================================="
